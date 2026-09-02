@@ -1,0 +1,11 @@
+// Schema do banco de dados do Pescare.
+// Os models de cada entidade (especies, defesos, tipos_compradores etc.)
+// ainda serao adicionados aqui conforme cada modulo for implementado.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
