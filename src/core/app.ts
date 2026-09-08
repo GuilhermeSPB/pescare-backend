@@ -1,6 +1,7 @@
 import express from 'express'
 import { notFoundHandler } from '../shared/middlewares/not-found.js'
 import { errorHandler } from '../shared/middlewares/error-handler.js'
+import { routes } from './routes.js'
 
 export function createApp() {
   const app = express()
@@ -13,8 +14,7 @@ export function createApp() {
     res.json({ status: 'ok' })
   })
 
-  // TODO: montar as rotas de cada modulo aqui conforme forem implementados,
-  // ex: app.use('/api/v1/especies', especiesRouter)
+  app.use('/api/v1', routes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
