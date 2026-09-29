@@ -5,38 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-}
-
-model alert {
-  id               Int              @id @default(autoincrement())
-  title            String           @db.VarChar
-  description      String?          @db.VarChar
-  alert_type       String           @db.VarChar
-  publication_date DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
-  scope            String           @db.VarChar
-  status           String           @db.VarChar
-  alert_coverage   alert_coverage[]
-}
-
-model alert_coverage {
-  id                        Int          @id @default(autoincrement())
-  fk_alert_id               Int
-  fk_municipality_ibge_code String       @db.VarChar
-  alert                     alert        @relation(fields: [fk_alert_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_coverage_2")
-  municipality              municipality @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_coverage_3")
-
-  @@unique([fk_alert_id, fk_municipality_ibge_code], map: "uq_alert_coverage")
-  @@index([fk_municipality_ibge_code], map: "idx_alert_coverage_fk_municipality_ibge_code")
-}
-
-model alert_preference {
-  id                Int     @id @default(autoincrement())
-  fishing_ban_alert Boolean @default(true)
-  news_alert        Boolean @default(true)
-  event_alert       Boolean @default(true)
-  system_alert      Boolean @default(true)
-  fk_user_id        Int     @unique(map: "uq_alert_preference_user")
-  users             users   @relation(fields: [fk_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_preference_2")
+  schemas  = ["pescare"]
 }
 
 model buyer_type {
@@ -44,6 +13,8 @@ model buyer_type {
   name                    String                    @unique(map: "uq_buyer_type_name") @db.VarChar
   is_active               Boolean                   @default(true)
   commercialization_buyer commercialization_buyer[]
+
+  @@schema("pescare")
 }
 
 model commercialization {
@@ -58,6 +29,7 @@ model commercialization {
 
   @@index([fk_fishing_record_id], map: "idx_commercialization_fk_fishing_record_id")
   @@index([fk_municipality_ibge_code], map: "idx_commercialization_fk_municipality_ibge_code")
+  @@schema("pescare")
 }
 
 model commercialization_buyer {
@@ -69,6 +41,7 @@ model commercialization_buyer {
 
   @@unique([fk_commercialization_id, fk_buyer_type_id], map: "uq_commercialization_buyer")
   @@index([fk_buyer_type_id], map: "idx_commercialization_buyer_fk_buyer_type_id")
+  @@schema("pescare")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -80,35 +53,8 @@ model fishing_ban {
   fishing_ban_type   String               @db.VarChar
   is_active          Boolean              @default(true)
   fishing_ban_period fishing_ban_period[]
-}
 
-model fishing_ban_coverage {
-  id                        Int                @id @default(autoincrement())
-  fk_municipality_ibge_code String             @db.VarChar
-  fk_fishing_ban_period_id  Int
-  municipality              municipality       @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_2")
-  fishing_ban_period        fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_3")
-
-  @@unique([fk_municipality_ibge_code, fk_fishing_ban_period_id], map: "uq_fishing_ban_coverage")
-  @@index([fk_fishing_ban_period_id], map: "idx_fishing_ban_coverage_fk_fishing_ban_period_id")
-}
-
-model fishing_ban_period {
-  id                            Int                         @id @default(autoincrement())
-  start_date                    DateTime                    @db.Date
-  end_date                      DateTime                    @db.Date
-  applies_to_all_species        Boolean                     @default(false)
-  applies_to_all_location_types Boolean                     @default(false)
-  observation                   String?                     @db.VarChar
-  start_in                      DateTime                    @db.Date
-  valid_until                   DateTime?                   @db.Date
-  fk_fishing_ban_id             Int
-  fishing_ban_coverage          fishing_ban_coverage[]
-  fishing_ban                   fishing_ban                 @relation(fields: [fk_fishing_ban_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_period_2")
-  fishing_ban_species           fishing_ban_species[]
-  fishing_ban_type_location     fishing_ban_type_location[]
-
-  @@index([fk_fishing_ban_id], map: "idx_fishing_ban_period_fk_fishing_ban_id")
+  @@schema("pescare")
 }
 
 model fishing_ban_species {
@@ -120,17 +66,7 @@ model fishing_ban_species {
 
   @@unique([fk_species_id, fk_fishing_ban_period_id], map: "uq_fishing_ban_species")
   @@index([fk_fishing_ban_period_id], map: "idx_fishing_ban_species_fk_fishing_ban_period_id")
-}
-
-model fishing_ban_type_location {
-  id                       Int                @id @default(autoincrement())
-  fk_type_location_id      Int
-  fk_fishing_ban_period_id Int
-  type_location            TypeLocation       @relation(fields: [fk_type_location_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_2")
-  fishing_ban_period       fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_3")
-
-  @@unique([fk_type_location_id, fk_fishing_ban_period_id], map: "uq_fishing_ban_type_location")
-  @@index([fk_fishing_ban_period_id], map: "idx_fishing_ban_type_location_fk_fishing_ban_period_id")
+  @@schema("pescare")
 }
 
 model fishing_method {
@@ -138,6 +74,8 @@ model fishing_method {
   name           String           @unique(map: "uq_fishing_method_name") @db.VarChar
   is_active      Boolean          @default(true)
   fishing_record fishing_record[]
+
+  @@schema("pescare")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -160,6 +98,7 @@ model fishing_record {
   @@index([fk_municipality_ibge_code], map: "idx_fishing_record_fk_municipality_ibge_code")
   @@index([fk_type_location_id], map: "idx_fishing_record_fk_type_location_id")
   @@index([fk_user_id], map: "idx_fishing_record_fk_user_id")
+  @@schema("pescare")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -176,6 +115,7 @@ model fishing_record_species {
 
   @@unique([fk_fishing_record_id, fk_species_id], map: "uq_fishing_record_species")
   @@index([fk_species_id], map: "idx_fishing_record_species_fk_species_id")
+  @@schema("pescare")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -188,6 +128,8 @@ model municipality {
   fishing_ban_coverage fishing_ban_coverage[]
   fishing_record       fishing_record[]
   users                users[]
+
+  @@schema("pescare")
 }
 
 model species {
@@ -202,13 +144,7 @@ model species {
   target_group           target_group             @relation(fields: [fk_target_group_id], references: [id], onUpdate: NoAction, map: "fk_species_2")
 
   @@index([fk_target_group_id], map: "idx_species_fk_target_group_id")
-}
-
-model target_group {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique(map: "uq_target_group_name") @db.VarChar
-  is_active Boolean   @default(true)
-  species   species[]
+  @@schema("pescare")
 }
 
 model TypeLocation {
@@ -219,6 +155,7 @@ model TypeLocation {
   fishing_record            fishing_record[]
 
   @@map("type_location")
+  @@schema("pescare")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -228,7 +165,7 @@ model users {
   email                     String            @unique(map: "uq_users_email") @db.VarChar
   password                  String            @db.VarChar
   registration_date         DateTime          @default(dbgenerated("CURRENT_DATE")) @db.Date
-  user_type                 String            @db.VarChar
+  role                      String            @db.VarChar
   is_active                 Boolean           @default(true)
   fk_municipality_ibge_code String            @db.VarChar
   alert_preference          alert_preference?
@@ -236,4 +173,94 @@ model users {
   municipality              municipality      @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onUpdate: NoAction, map: "fk_user_2")
 
   @@index([fk_municipality_ibge_code], map: "idx_users_fk_municipality_ibge_code")
+  @@schema("pescare")
+}
+
+model target_group {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique(map: "uq_target_group_name") @db.VarChar
+  is_active Boolean   @default(true)
+  species   species[]
+
+  @@schema("pescare")
+}
+
+model alert {
+  id               Int              @id @default(autoincrement())
+  title            String           @db.VarChar
+  description      String?          @db.VarChar
+  alert_type       String           @db.VarChar
+  publication_date DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
+  scope            String           @db.VarChar
+  status           String           @db.VarChar
+  alert_coverage   alert_coverage[]
+
+  @@schema("pescare")
+}
+
+model alert_coverage {
+  id                        Int          @id @default(autoincrement())
+  fk_alert_id               Int
+  fk_municipality_ibge_code String       @db.VarChar
+  alert                     alert        @relation(fields: [fk_alert_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_coverage_2")
+  municipality              municipality @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_coverage_3")
+
+  @@unique([fk_alert_id, fk_municipality_ibge_code], map: "uq_alert_coverage")
+  @@index([fk_municipality_ibge_code], map: "idx_alert_coverage_fk_municipality_ibge_code")
+  @@schema("pescare")
+}
+
+model alert_preference {
+  id                Int     @id @default(autoincrement())
+  fishing_ban_alert Boolean @default(true)
+  news_alert        Boolean @default(true)
+  event_alert       Boolean @default(true)
+  system_alert      Boolean @default(true)
+  fk_user_id        Int     @unique(map: "uq_alert_preference_user")
+  users             users   @relation(fields: [fk_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_preference_2")
+
+  @@schema("pescare")
+}
+
+model fishing_ban_coverage {
+  id                        Int                @id @default(autoincrement())
+  fk_municipality_ibge_code String             @db.VarChar
+  fk_fishing_ban_period_id  Int
+  municipality              municipality       @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_2")
+  fishing_ban_period        fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_3")
+
+  @@unique([fk_municipality_ibge_code, fk_fishing_ban_period_id], map: "uq_fishing_ban_coverage")
+  @@index([fk_fishing_ban_period_id], map: "idx_fishing_ban_coverage_fk_fishing_ban_period_id")
+  @@schema("pescare")
+}
+
+model fishing_ban_period {
+  id                            Int                         @id @default(autoincrement())
+  start_date                    DateTime                    @db.Date
+  end_date                      DateTime                    @db.Date
+  applies_to_all_species        Boolean                     @default(false)
+  applies_to_all_location_types Boolean                     @default(false)
+  observation                   String?                     @db.VarChar
+  start_in                      DateTime                    @db.Date
+  valid_until                   DateTime?                   @db.Date
+  fk_fishing_ban_id             Int
+  fishing_ban_coverage          fishing_ban_coverage[]
+  fishing_ban                   fishing_ban                 @relation(fields: [fk_fishing_ban_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_period_2")
+  fishing_ban_species           fishing_ban_species[]
+  fishing_ban_type_location     fishing_ban_type_location[]
+
+  @@index([fk_fishing_ban_id], map: "idx_fishing_ban_period_fk_fishing_ban_id")
+  @@schema("pescare")
+}
+
+model fishing_ban_type_location {
+  id                       Int                @id @default(autoincrement())
+  fk_type_location_id      Int
+  fk_fishing_ban_period_id Int
+  type_location            TypeLocation       @relation(fields: [fk_type_location_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_2")
+  fishing_ban_period       fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_3")
+
+  @@unique([fk_type_location_id, fk_fishing_ban_period_id], map: "uq_fishing_ban_type_location")
+  @@index([fk_fishing_ban_period_id], map: "idx_fishing_ban_type_location_fk_fishing_ban_period_id")
+  @@schema("pescare")
 }

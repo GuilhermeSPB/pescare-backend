@@ -23,7 +23,9 @@
   },
   "homepage": "https://github.com/GuilhermeSPB/pescare-backend#readme",
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.4.0",
     "prisma": "^7.10.0",
     "tsc-alias": "^1.9.4",
@@ -33,8 +35,10 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "zod": "^4.5.4"
   }
 }
