@@ -3,7 +3,8 @@ import {
   createBuyerTypeSchema,
   updateBuyerTypeSchema,
 } from "./buyer-types.schema.js";
-import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
+import { AppError } from "@shared/errors/app-error.js";
 
 export const buyerTypesServices = {
   /**
@@ -19,21 +20,22 @@ export const buyerTypesServices = {
    * Seleciona todos os tipos de comprador, com a opção de filtrar por ativos ou inativos.
    */
   async getAll(isActive?: boolean | undefined) {
-    const isActiveFilter = isActive !== undefined ? isActive : undefined;
-
-    const buyerTypes = await buyerTypesRepository.getAll(isActiveFilter);
-
-    return buyerTypes;
+    return await buyerTypesRepository.getAll(isActive);
   },
+
   /**
    * Seleciona um tipo de comprador pelo ID.
    */
-  async getById(payload: number) {
-    const id = z.number().int().parse(payload);
+  async getById(payload: unknown) {
+    const id = idParam.parse(payload);
 
-    const buyerTypes = await buyerTypesRepository.getById(id);
+    const buyerType = await buyerTypesRepository.getById(id);
 
-    return buyerTypes;
+    if (!buyerType) {
+      throw new AppError("Tipo de comprador não encontrado", 404);
+    }
+
+    return buyerType;
   },
 
   /**
@@ -41,6 +43,7 @@ export const buyerTypesServices = {
    */
   async update(payload: unknown) {
     const validatedData = updateBuyerTypeSchema.parse(payload);
+
     return await buyerTypesRepository.update(validatedData);
   },
 };

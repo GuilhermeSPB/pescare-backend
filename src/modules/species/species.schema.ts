@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
 
 export const createSpeciesSchema = z.object({
   scientific_name: z
@@ -11,7 +12,7 @@ export const createSpeciesSchema = z.object({
 });
 
 export const updateSpeciesSchema = z.object({
-  id: z.number().int(),
+  id: idParam,
   data: z
     .object({
       scientific_name: z

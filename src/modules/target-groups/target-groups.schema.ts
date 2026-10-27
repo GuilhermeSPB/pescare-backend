@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
 
 export const createTargetGroupSchema = z.object({
   name: z.string().min(1, "Informe o nome do grupo alvo").trim(),
 });
 
 export const updateTargetGroupSchema = z.object({
-  id: z.number().int(),
+  id: idParam,
   data: z
     .object({
       name: z.string().min(1, "Informe o nome do grupo alvo").trim(),

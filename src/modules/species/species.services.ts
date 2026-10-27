@@ -1,6 +1,7 @@
 import { speciesRepository } from "./species.repository.js";
 import { createSpeciesSchema, updateSpeciesSchema } from "./species.schema.js";
-import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
+import { AppError } from "@shared/errors/app-error.js";
 
 export const speciesServices = {
   /**
@@ -16,19 +17,20 @@ export const speciesServices = {
    * Seleciona todas as espécies, com a opção de filtrar por ativas ou inativas.
    */
   async getAll(isActive?: boolean | undefined) {
-    const isActiveFilter = isActive !== undefined ? isActive : undefined;
-
-    const species = await speciesRepository.getAll(isActiveFilter);
-
-    return species;
+    return await speciesRepository.getAll(isActive);
   },
+
   /**
    * Seleciona uma espécie pelo ID.
    */
-  async getById(payload: number) {
-    const id = z.number().int().parse(payload);
+  async getById(payload: unknown) {
+    const id = idParam.parse(payload);
 
     const species = await speciesRepository.getById(id);
+
+    if (!species) {
+      throw new AppError("Espécie não encontrada", 404);
+    }
 
     return species;
   },
@@ -38,6 +40,7 @@ export const speciesServices = {
    */
   async update(payload: unknown) {
     const validatedData = updateSpeciesSchema.parse(payload);
+
     return await speciesRepository.update(validatedData);
   },
 };

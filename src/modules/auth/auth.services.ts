@@ -1,12 +1,10 @@
-import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Prisma } from "@core/prisma.js";
 import { env } from "@core/env.js";
 import { AppError } from "@shared/errors/app-error.js";
+import { comparePassword, hashPassword } from "@shared/utils/password.js";
 import { authRepository } from "./auth.repository.js";
 import { signInSchema, signUpSchema } from "./auth.schema.js";
-
-const SALT_ROUNDS = 10;
 
 export const authServices = {
   /**
@@ -21,7 +19,7 @@ export const authServices = {
       throw new AppError("E-mail já cadastrado", 409);
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
+    const hashedPassword = await hashPassword(data.password);
 
     try {
       const user = await authRepository.createUser({
@@ -62,13 +60,16 @@ export const authServices = {
       throw new AppError("Credenciais inválidas", 401);
     }
 
-    const passwordMatches = await bcrypt.compare(
-      data.password,
-      user.password,
-    );
+    const passwordMatches = await comparePassword(data.password, user.password);
 
     if (!passwordMatches) {
       throw new AppError("Credenciais inválidas", 401);
+    }
+
+    // Checado so depois da senha, pra nao revelar a quem nao sabe a senha
+    // que o e-mail existe.
+    if (!user.is_active) {
+      throw new AppError("Usuário desativado", 403);
     }
 
     const token = jwt.sign(

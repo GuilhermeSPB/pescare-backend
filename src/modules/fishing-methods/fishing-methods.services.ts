@@ -3,7 +3,8 @@ import {
   createFishingMethodSchema,
   updateFishingMethodSchema,
 } from "./fishing-methods.schema.js";
-import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
+import { AppError } from "@shared/errors/app-error.js";
 
 export const fishingMethodsServices = {
   /**
@@ -19,22 +20,22 @@ export const fishingMethodsServices = {
    * Seleciona todos os métodos de pesca, com a opção de filtrar por ativos ou inativos.
    */
   async getAll(isActive?: boolean | undefined) {
-    const isActiveFilter = isActive !== undefined ? isActive : undefined;
-
-    const fishingMethods =
-      await fishingMethodsRepository.getAll(isActiveFilter);
-
-    return fishingMethods;
+    return await fishingMethodsRepository.getAll(isActive);
   },
+
   /**
    * Seleciona um método de pesca pelo ID.
    */
-  async getById(payload: number) {
-    const id = z.number().int().parse(payload);
+  async getById(payload: unknown) {
+    const id = idParam.parse(payload);
 
-    const fishingMethods = await fishingMethodsRepository.getById(id);
+    const fishingMethod = await fishingMethodsRepository.getById(id);
 
-    return fishingMethods;
+    if (!fishingMethod) {
+      throw new AppError("Método de pesca não encontrado", 404);
+    }
+
+    return fishingMethod;
   },
 
   /**
@@ -42,6 +43,7 @@ export const fishingMethodsServices = {
    */
   async update(payload: unknown) {
     const validatedData = updateFishingMethodSchema.parse(payload);
+
     return await fishingMethodsRepository.update(validatedData);
   },
 };
