@@ -8,6 +8,7 @@ import { authRouter } from "@modules/auth/auth.routes.js";
 import { usersRouter } from "@modules/users/users.routes.js";
 import { municipalitiesRouter } from "@modules/municipalities/municipalities.routes.js";
 import { alertsRouter } from "@modules/alerts/alerts.routes.js";
+import { fishingBanPeriodsRouter } from "@modules/fishing-ban-periods/fishing-ban-periods.routes.js";
 
 import { isAuthenticated } from "@shared/middlewares/isAuthenticated.js";
 
@@ -22,5 +23,6 @@ routes.use("/species", speciesRouter);
 routes.use("/target-groups", targetGroupRouter);
 routes.use("/users", isAuthenticated, usersRouter);
 routes.use("/alerts", isAuthenticated, alertsRouter);
+routes.use("/fishing-ban-periods", isAuthenticated, fishingBanPeriodsRouter);
 
 export { routes };
