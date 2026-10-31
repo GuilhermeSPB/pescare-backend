@@ -1,5 +1,8 @@
 import { prisma } from "@core/prisma.js";
-import type { ListMunicipalitiesType } from "./municipalities.schema.js";
+import type {
+  ListMunicipalitiesType,
+  UpdateMunicipalityType,
+} from "./municipalities.schema.js";
 
 export const municipalitiesRepository = {
   getAll: async (filters: ListMunicipalitiesType) => {
@@ -17,6 +20,13 @@ export const municipalitiesRepository = {
   getByIbgeCode: async (ibgeCode: string) => {
     return await prisma.municipality.findUnique({
       where: { ibge_code: ibgeCode },
+    });
+  },
+
+  update: async (ibgeCode: string, data: UpdateMunicipalityType) => {
+    return await prisma.municipality.update({
+      where: { ibge_code: ibgeCode },
+      data,
     });
   },
 };

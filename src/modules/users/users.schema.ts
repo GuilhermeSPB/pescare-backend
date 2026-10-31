@@ -32,22 +32,20 @@ export const listUsersSchema = z.object({
   role: z.enum(ROLES).optional(),
 });
 
-// Cadastro feito por um admin: diferente do sign-up publico, permite
-// escolher a role (ex.: criar outro ADMIN).
+// Cadastro feito por um admin: cria sempre outro ADMIN (decisao do time).
+// O pescador se cadastra sozinho pelo sign-up publico. Um `role` enviado
+// e descartado pelo zod.
 export const createUserSchema = z.object({
   name,
   email: z.email("Informe um e-mail válido").trim().toLowerCase(),
   password,
   fk_municipality_ibge_code: ibgeCode,
-  role: z.enum(ROLES),
 });
 
-export const adminUpdateUserSchema = z
-  .object({
-    role: z.enum(ROLES).optional(),
-    is_active: z.boolean().optional(),
-  })
-  .refine(atLeastOneField, atLeastOneFieldMessage);
+// O admin so ativa e desativa: promover ou rebaixar nao faz parte da regra.
+export const adminUpdateUserSchema = z.object({
+  is_active: z.boolean("Informe se o usuário fica ativo"),
+});
 
 export type UpdateMeType = z.infer<typeof updateMeSchema>;
 export type ListUsersType = z.infer<typeof listUsersSchema>;

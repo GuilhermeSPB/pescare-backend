@@ -1,5 +1,6 @@
 import { prisma } from "@core/prisma.js";
 import { stripUndefined } from "@shared/utils/strip-undefined.js";
+import type { Role } from "@shared/constants/roles.js";
 import type {
   AdminUpdateUserType,
   CreateUserType,
@@ -52,7 +53,7 @@ export const usersRepository = {
     });
   },
 
-  create: async (data: CreateUserType) => {
+  create: async (data: CreateUserType & { role: Role }) => {
     return await prisma.users.create({
       data,
       select: safeUserSelect,

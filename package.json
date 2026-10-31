@@ -10,7 +10,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc && tsc-alias",
     "start": "node dist/index.js",
-    "create-admin": "tsx src/scripts/create-admin.ts"
+    "create-admin": "tsx src/scripts/create-admin.ts",
+    "build-municipalities-file": "tsx src/scripts/build-municipalities-file.ts",
+    "seed-municipalities": "tsx src/scripts/seed-municipalities.ts"
   },
   "repository": {
     "type": "git",
@@ -29,6 +31,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.4.0",
+    "fflate": "^0.8.3",
     "prisma": "^7.10.0",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.19.0",

@@ -3,7 +3,18 @@ import { municipalitiesRepository } from "./municipalities.repository.js";
 import {
   ibgeCodeParam,
   listMunicipalitiesSchema,
+  updateMunicipalitySchema,
 } from "./municipalities.schema.js";
+
+async function findOrFail(ibgeCode: string) {
+  const municipality = await municipalitiesRepository.getByIbgeCode(ibgeCode);
+
+  if (!municipality) {
+    throw new AppError("Município não encontrado", 404);
+  }
+
+  return municipality;
+}
 
 export const municipalitiesServices = {
   /**
@@ -21,12 +32,19 @@ export const municipalitiesServices = {
   async getByIbgeCode(payload: unknown) {
     const ibgeCode = ibgeCodeParam.parse(payload);
 
-    const municipality = await municipalitiesRepository.getByIbgeCode(ibgeCode);
+    return await findOrFail(ibgeCode);
+  },
 
-    if (!municipality) {
-      throw new AppError("Município não encontrado", 404);
-    }
+  /**
+   * Corrige o nome de um município (somente admin). A próxima carga do
+   * arquivo do IBGE (npm run seed-municipalities) volta ao nome do arquivo.
+   */
+  async update(ibgeCodePayload: unknown, payload: unknown) {
+    const ibgeCode = ibgeCodeParam.parse(ibgeCodePayload);
+    const data = updateMunicipalitySchema.parse(payload);
 
-    return municipality;
+    await findOrFail(ibgeCode);
+
+    return await municipalitiesRepository.update(ibgeCode, data);
   },
 };
