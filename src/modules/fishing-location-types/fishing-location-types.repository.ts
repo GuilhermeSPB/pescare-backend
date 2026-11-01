@@ -1,11 +1,11 @@
 import { prisma } from "@core/prisma.js";
 import type {
-  UpdateLocationFishingType,
-  CreateLocationFishingType,
-} from "./location-fishings.schema.js";
+  UpdateFishingLocationTypeType,
+  CreateFishingLocationTypeType,
+} from "./fishing-location-types.schema.js";
 
-export const locationFishingsRepository = {
-  create: async (data: CreateLocationFishingType) => {
+export const fishingLocationTypesRepository = {
+  create: async (data: CreateFishingLocationTypeType) => {
     return await prisma.typeLocation.create({
       data,
     });
@@ -23,7 +23,7 @@ export const locationFishingsRepository = {
     });
   },
 
-  update: async (object: UpdateLocationFishingType) => {
+  update: async (object: UpdateFishingLocationTypeType) => {
     return await prisma.typeLocation.update({
       where: { id: object.id },
       data: object.data,

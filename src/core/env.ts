@@ -7,6 +7,16 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL e obrigatoria'),
   PORT: z.coerce.number().int().positive().default(3000),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET e obrigatoria'),
+  // Origens do front separadas por virgula. Sem ela, o CORS aceita qualquer origem.
+  CORS_ORIGINS: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value
+        ?.split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
 })
 
 const parsed = envSchema.safeParse(process.env)

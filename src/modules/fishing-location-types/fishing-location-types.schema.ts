@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
 
-export const createLocationFishingSchema = z.object({
+export const createFishingLocationTypeSchema = z.object({
   name: z.string().min(1, "Informe o nome do tipo de local de pesca").trim(),
 });
 
-export const updateLocationFishingSchema = z.object({
-  id: z.number().int(),
+export const updateFishingLocationTypeSchema = z.object({
+  id: idParam,
   data: z
     .object({
       name: z
@@ -25,9 +26,9 @@ export const updateLocationFishingSchema = z.object({
     ),
 });
 
-export type CreateLocationFishingType = z.infer<
-  typeof createLocationFishingSchema
+export type CreateFishingLocationTypeType = z.infer<
+  typeof createFishingLocationTypeSchema
 >;
-export type UpdateLocationFishingType = z.infer<
-  typeof updateLocationFishingSchema
+export type UpdateFishingLocationTypeType = z.infer<
+  typeof updateFishingLocationTypeSchema
 >;

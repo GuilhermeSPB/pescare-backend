@@ -3,7 +3,8 @@ import {
   createTargetGroupSchema,
   updateTargetGroupSchema,
 } from "./target-groups.schema.js";
-import { z } from "zod";
+import { idParam } from "@shared/schemas/id-param.js";
+import { AppError } from "@shared/errors/app-error.js";
 
 export const targetGroupsServices = {
   /**
@@ -19,21 +20,22 @@ export const targetGroupsServices = {
    * Seleciona todos os grupos alvo, com a opção de filtrar por ativos ou inativos.
    */
   async getAll(isActive?: boolean | undefined) {
-    const isActiveFilter = isActive !== undefined ? isActive : undefined;
-
-    const targetGroups = await targetGroupsRepository.getAll(isActiveFilter);
-
-    return targetGroups;
+    return await targetGroupsRepository.getAll(isActive);
   },
+
   /**
    * Seleciona um grupo alvo pelo ID.
    */
-  async getById(payload: number) {
-    const id = z.number().int().parse(payload);
+  async getById(payload: unknown) {
+    const id = idParam.parse(payload);
 
-    const targetGroups = await targetGroupsRepository.getById(id);
+    const targetGroup = await targetGroupsRepository.getById(id);
 
-    return targetGroups;
+    if (!targetGroup) {
+      throw new AppError("Grupo alvo não encontrado", 404);
+    }
+
+    return targetGroup;
   },
 
   /**
@@ -41,6 +43,7 @@ export const targetGroupsServices = {
    */
   async update(payload: unknown) {
     const validatedData = updateTargetGroupSchema.parse(payload);
+
     return await targetGroupsRepository.update(validatedData);
   },
 };
