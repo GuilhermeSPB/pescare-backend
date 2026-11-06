@@ -87,6 +87,7 @@ model fishing_record {
   fk_type_location_id       Int
   fk_fishing_method_id      Int
   fk_municipality_ibge_code String                   @db.VarChar
+  location_name             String?                  @db.VarChar
   commercialization         commercialization[]
   users                     users                    @relation(fields: [fk_user_id], references: [id], onUpdate: NoAction, map: "fk_fishing_record_2")
   type_location             TypeLocation             @relation(fields: [fk_type_location_id], references: [id], onUpdate: NoAction, map: "fk_fishing_record_3")
@@ -104,7 +105,7 @@ model fishing_record {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model fishing_record_species {
   id                   Int            @id @default(autoincrement())
-  unit_value           Decimal        @db.Decimal(10, 2)
+  unit_value           Decimal?       @db.Decimal(10, 2)
   quantity             Decimal        @db.Decimal(10, 3)
   commercialized       Boolean        @default(false)
   unit_measure         String         @db.VarChar(10)
@@ -134,7 +135,7 @@ model municipality {
 
 model species {
   id                     Int                      @id @default(autoincrement())
-  scientific_name        String                   @db.VarChar
+  scientific_name        String                   @unique(map: "uq_species_scientific_name") @db.VarChar
   main_name              String                   @db.VarChar
   description            String?                  @db.VarChar
   is_active              Boolean                  @default(true)
@@ -147,10 +148,12 @@ model species {
   @@schema("pescare")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model TypeLocation {
   id                        Int                         @id @default(autoincrement())
   name                      String                      @unique(map: "uq_type_location_name") @db.VarChar
   is_active                 Boolean                     @default(true)
+  environment               String?                     @db.VarChar
   fishing_ban_type_location fishing_ban_type_location[]
   fishing_record            fishing_record[]
 
@@ -185,6 +188,7 @@ model target_group {
   @@schema("pescare")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model alert {
   id               Int              @id @default(autoincrement())
   title            String           @db.VarChar
@@ -234,22 +238,38 @@ model fishing_ban_coverage {
   @@schema("pescare")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model fishing_ban_period {
   id                            Int                         @id @default(autoincrement())
-  start_date                    DateTime                    @db.Date
-  end_date                      DateTime                    @db.Date
   applies_to_all_species        Boolean                     @default(false)
   applies_to_all_location_types Boolean                     @default(false)
   observation                   String?                     @db.VarChar
   start_in                      DateTime                    @db.Date
   valid_until                   DateTime?                   @db.Date
   fk_fishing_ban_id             Int
+  status                        String                      @default("ACTIVE") @db.VarChar
+  fk_previous_period_id         Int?                        @unique(map: "uq_fishing_ban_period_previous")
   fishing_ban_coverage          fishing_ban_coverage[]
   fishing_ban                   fishing_ban                 @relation(fields: [fk_fishing_ban_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_period_2")
+  previous_period               fishing_ban_period?         @relation("fishing_ban_period_versions", fields: [fk_previous_period_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_fishing_ban_period_3")
+  next_period                   fishing_ban_period?         @relation("fishing_ban_period_versions")
+  fishing_ban_period_window     fishing_ban_period_window[]
   fishing_ban_species           fishing_ban_species[]
   fishing_ban_type_location     fishing_ban_type_location[]
 
   @@index([fk_fishing_ban_id], map: "idx_fishing_ban_period_fk_fishing_ban_id")
+  @@schema("pescare")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model fishing_ban_period_window {
+  id                       Int                @id @default(autoincrement())
+  start_date               DateTime           @db.Date
+  end_date                 DateTime           @db.Date
+  fk_fishing_ban_period_id Int
+  fishing_ban_period       fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_period_window_2")
+
+  @@unique([fk_fishing_ban_period_id, start_date], map: "uq_fishing_ban_period_window")
   @@schema("pescare")
 }
 

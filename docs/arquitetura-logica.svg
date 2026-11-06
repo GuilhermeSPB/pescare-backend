@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="1272" viewBox="0 0 920 1272" font-family="Inter, 'Segoe UI', Arial, sans-serif">
+  <title>Arquitetura lógica do PescaRe</title>
+  <defs>
+    <marker id="seta" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1A202C"/>
+    </marker>
+    <marker id="seta-uso" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#718096"/>
+    </marker>
+    <style>
+      .sec   { fill:#EAF2FB; stroke:#2B4C7E; stroke-width:1.5; }
+      .sub   { fill:#F7FAFE; stroke:#2B4C7E; stroke-width:1.2; }
+      .box   { fill:#FFFFFF; stroke:#2B4C7E; stroke-width:1.3; }
+      .apoio { fill:#FFFFFF; stroke:#2B4C7E; stroke-width:1.2; stroke-dasharray:5 4; }
+      .seg   { fill:#FFF3DC; stroke:#B7791F; stroke-width:1.5; }
+      .orm   { fill:#EEF0F3; stroke:#5A6472; stroke-width:1.3; }
+      .t-sec { font-size:15px; font-weight:700; fill:#1A202C; letter-spacing:0.04em; }
+      .t-sub { font-size:14px; font-weight:700; fill:#1A202C; }
+      .t-nota{ font-size:12px; fill:#4A5568; }
+      .t-box { font-size:14px; font-weight:700; fill:#1A202C; text-anchor:middle; }
+      .t-dir { font-size:13px; font-weight:700; fill:#1A202C; text-anchor:middle; }
+      .t-det { font-size:11px; fill:#4A5568; text-anchor:middle; }
+      .fluxo { stroke:#1A202C; stroke-width:1.6; fill:none; marker-end:url(#seta); }
+      .uso   { stroke:#718096; stroke-width:1.3; fill:none; stroke-dasharray:5 4; marker-end:url(#seta-uso); }
+    </style>
+  </defs>
+
+  <rect width="920" height="1272" fill="#FFFFFF"/>
+
+  <!-- ATORES -->
+  <rect class="sec" x="290" y="20" width="420" height="112" rx="10"/>
+  <text class="t-sec" x="308" y="44">ATORES</text>
+  <rect class="box" x="320" y="58" width="160" height="54" rx="6"/>
+  <text class="t-box" x="400" y="81">Pescador</text>
+  <text class="t-det" x="400" y="99">papel FISHER</text>
+  <rect class="box" x="520" y="58" width="160" height="54" rx="6"/>
+  <text class="t-box" x="600" y="81">Administrador</text>
+  <text class="t-det" x="600" y="99">papel ADMIN</text>
+
+  <path class="fluxo" d="M500,132 V162"/>
+
+  <!-- FRONT-END -->
+  <rect class="sec" x="250" y="162" width="500" height="150" rx="10"/>
+  <text class="t-sec" x="268" y="186">FRONT-END</text>
+  <rect class="box" x="366" y="200" width="28" height="46" rx="5"/>
+  <path d="M375,240 H385" stroke="#2B4C7E" stroke-width="1.6" stroke-linecap="round"/>
+  <text class="t-nota" x="380" y="270" text-anchor="middle" font-size="13">Aplicação móvel</text>
+  <text class="t-box" x="380" y="289" font-size="13">React Native (Expo)</text>
+  <rect class="box" x="595" y="203" width="50" height="34" rx="3"/>
+  <path d="M620,237 V246 M606,247 H634" stroke="#2B4C7E" stroke-width="1.8" stroke-linecap="round"/>
+  <text class="t-nota" x="620" y="270" text-anchor="middle" font-size="13">Aplicação web</text>
+  <text class="t-box" x="620" y="289" font-size="13">React (Vite)</text>
+
+  <path class="fluxo" d="M500,312 V436"/>
+  <text class="t-nota" x="514" y="334">HTTP/REST · JSON</text>
+  <text class="t-nota" x="514" y="350">token JWT no header Authorization</text>
+
+  <!-- BACK-END -->
+  <rect class="sec" x="20" y="362" width="880" height="738" rx="12"/>
+  <text class="t-sec" x="38" y="388">BACK-END<tspan dx="12" font-size="12" font-weight="400" fill="#4A5568" letter-spacing="0">Node.js · Express · TypeScript</tspan></text>
+
+  <!-- /core -->
+  <rect class="sub" x="40" y="404" width="840" height="176" rx="8"/>
+  <text class="t-sub" x="58" y="428">/core</text>
+  <text class="t-nota" x="58" y="446">arquivos base do sistema</text>
+  <rect class="box" x="400" y="436" width="200" height="50" rx="6"/>
+  <text class="t-box" x="500" y="457">app.ts</text>
+  <text class="t-det" x="500" y="475">servidor Express (CORS, JSON)</text>
+  <path class="fluxo" d="M500,486 V510"/>
+  <rect class="box" x="400" y="510" width="200" height="50" rx="6"/>
+  <text class="t-box" x="500" y="531">routes.ts</text>
+  <text class="t-det" x="500" y="549">agrega as rotas em /api/v1</text>
+  <rect class="apoio" x="680" y="436" width="180" height="50" rx="6"/>
+  <text class="t-box" x="770" y="457">env.ts</text>
+  <text class="t-det" x="770" y="475">variáveis de ambiente</text>
+  <rect class="apoio" x="680" y="510" width="180" height="50" rx="6"/>
+  <text class="t-box" x="770" y="531">prisma.ts</text>
+  <text class="t-det" x="770" y="549">instância do Prisma Client</text>
+
+  <path class="fluxo" d="M500,560 V632"/>
+
+  <!-- /shared -->
+  <rect class="sub" x="40" y="600" width="200" height="408" rx="8"/>
+  <text class="t-sub" x="58" y="624">/shared</text>
+  <text class="t-nota" x="58" y="642">usado por todos os módulos</text>
+  <rect class="box" x="56" y="654" width="168" height="42" rx="6"/>
+  <text class="t-dir" x="140" y="671">constants/</text>
+  <text class="t-det" x="140" y="687">roles: FISHER, ADMIN</text>
+  <rect class="box" x="56" y="706" width="168" height="64" rx="6"/>
+  <text class="t-dir" x="140" y="726">middlewares/</text>
+  <text class="t-det" x="140" y="743">isAuthenticated, hasRole</text>
+  <text class="t-det" x="140" y="759">errorHandler, notFound</text>
+  <rect class="box" x="56" y="786" width="168" height="44" rx="6"/>
+  <text class="t-dir" x="140" y="804">schemas/</text>
+  <text class="t-det" x="140" y="820" style="font-size:10.5px">idParam, booleanQueryParam</text>
+  <rect class="box" x="56" y="846" width="168" height="44" rx="6"/>
+  <text class="t-dir" x="140" y="864">errors/</text>
+  <text class="t-det" x="140" y="880">AppError</text>
+  <rect class="box" x="56" y="906" width="168" height="44" rx="6"/>
+  <text class="t-dir" x="140" y="924">utils/</text>
+  <text class="t-det" x="140" y="940">password, dates, …</text>
+
+  <!-- /modules -->
+  <rect class="sub" x="260" y="600" width="620" height="408" rx="8"/>
+  <text class="t-sub" x="278" y="624">/modules</text>
+  <text class="t-nota" x="278" y="642">um por domínio</text>
+  <text class="t-det" x="862" y="624" style="text-anchor:end">ex.: species, alerts, users, fishing-records, …</text>
+
+  <rect class="box" x="400" y="632" width="200" height="48" rx="6"/>
+  <text class="t-box" x="500" y="652">Routes</text>
+  <text class="t-det" x="500" y="670">endpoints do domínio</text>
+  <path class="fluxo" d="M500,680 V706"/>
+
+  <rect class="seg" x="400" y="706" width="200" height="64" rx="6"/>
+  <text class="t-box" x="500" y="727">Middlewares</text>
+  <text class="t-det" x="500" y="744">isAuthenticated → hasRole</text>
+  <text class="t-det" x="500" y="760">401 sem token · 403 sem papel</text>
+  <path class="uso" d="M224,738 H400"/>
+  <text class="t-det" x="312" y="731">usa</text>
+  <path class="fluxo" d="M500,770 V796"/>
+
+  <rect class="box" x="400" y="796" width="200" height="48" rx="6"/>
+  <text class="t-box" x="500" y="816">Controller</text>
+  <text class="t-det" x="500" y="834">recebe a requisição e responde</text>
+  <path class="fluxo" d="M500,844 V868"/>
+
+  <rect class="box" x="400" y="868" width="200" height="48" rx="6"/>
+  <text class="t-box" x="500" y="888">Service</text>
+  <text class="t-det" x="500" y="906">regras de negócio</text>
+  <rect class="apoio" x="660" y="868" width="180" height="48" rx="6"/>
+  <text class="t-box" x="750" y="888">Schema (Zod)</text>
+  <text class="t-det" x="750" y="906">valida os dados de entrada</text>
+  <path class="uso" d="M660,892 H600"/>
+  <path class="fluxo" d="M500,916 V940"/>
+
+  <rect class="box" x="400" y="940" width="200" height="48" rx="6"/>
+  <text class="t-box" x="500" y="960">Repository</text>
+  <text class="t-det" x="500" y="978">consultas e gravações</text>
+
+  <path class="fluxo" d="M500,988 V1032"/>
+
+  <rect class="orm" x="400" y="1032" width="200" height="48" rx="6"/>
+  <text class="t-box" x="500" y="1052">Prisma ORM</text>
+  <text class="t-det" x="500" y="1070">Prisma Client</text>
+  <text class="t-nota" x="640" y="1052" font-size="11.5" font-style="italic">Erros de qualquer camada (AppError, Zod)</text>
+  <text class="t-nota" x="640" y="1068" font-size="11.5" font-style="italic">são tratados pelo errorHandler de /shared</text>
+
+  <path class="fluxo" d="M500,1080 V1140"/>
+  <text class="t-nota" x="512" y="1118">SQL</text>
+
+  <!-- PERSISTÊNCIA -->
+  <rect class="sec" x="330" y="1140" width="340" height="112" rx="10"/>
+  <text class="t-sec" x="348" y="1164">PERSISTÊNCIA DE DADOS</text>
+  <path d="M482,1182 V1212 A18,6 0 0 0 518,1212 V1182" fill="#FFFFFF" stroke="#2B4C7E" stroke-width="1.5"/>
+  <path d="M482,1197 A18,6 0 0 0 518,1197" fill="none" stroke="#2B4C7E" stroke-width="1.2"/>
+  <ellipse cx="500" cy="1182" rx="18" ry="6" fill="#FFFFFF" stroke="#2B4C7E" stroke-width="1.5"/>
+  <text class="t-box" x="500" y="1238" font-size="13">PostgreSQL</text>
+
+  <!-- LEGENDA -->
+  <path class="fluxo" d="M700,1164 H732"/>
+  <text class="t-nota" x="742" y="1168">fluxo da requisição</text>
+  <path class="uso" d="M700,1188 H732"/>
+  <text class="t-nota" x="742" y="1192">dependência / uso</text>
+  <rect class="seg" x="700" y="1203" width="32" height="16" rx="3"/>
+  <text class="t-nota" x="742" y="1215">autenticação e RBAC</text>
+  <rect class="apoio" x="700" y="1227" width="32" height="16" rx="3"/>
+  <text class="t-nota" x="742" y="1239">apoio, fora do fluxo</text>
+</svg>

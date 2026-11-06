@@ -9,6 +9,7 @@ import { usersRouter } from "@modules/users/users.routes.js";
 import { municipalitiesRouter } from "@modules/municipalities/municipalities.routes.js";
 import { alertsRouter } from "@modules/alerts/alerts.routes.js";
 import { fishingBanPeriodsRouter } from "@modules/fishing-ban-periods/fishing-ban-periods.routes.js";
+import { fishingRecordsRouter } from "@modules/fishing-records/fishing-records.routes.js";
 
 import { isAuthenticated } from "@shared/middlewares/isAuthenticated.js";
 
@@ -24,5 +25,6 @@ routes.use("/target-groups", targetGroupRouter);
 routes.use("/users", isAuthenticated, usersRouter);
 routes.use("/alerts", isAuthenticated, alertsRouter);
 routes.use("/fishing-ban-periods", isAuthenticated, fishingBanPeriodsRouter);
+routes.use("/fishing-records", isAuthenticated, fishingRecordsRouter);
 
 export { routes };
