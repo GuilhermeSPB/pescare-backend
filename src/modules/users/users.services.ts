@@ -1,3 +1,4 @@
+import { Prisma } from "@core/prisma.js";
 import { AppError } from "@shared/errors/app-error.js";
 import { idParam } from "@shared/schemas/id-param.js";
 import { comparePassword, hashPassword } from "@shared/utils/password.js";
@@ -90,7 +91,8 @@ export const usersServices = {
   },
 
   /**
-   * Cria um usuário com qualquer role (somente admin).
+   * Cadastra outro administrador (somente admin). Pescadores se cadastram
+   * sozinhos pelo sign-up.
    */
   async create(payload: unknown) {
     const data = createUserSchema.parse(payload);
@@ -99,28 +101,34 @@ export const usersServices = {
       throw new AppError("E-mail já cadastrado", 409);
     }
 
-    return await usersRepository.create({
-      ...data,
-      password: await hashPassword(data.password),
-    });
+    try {
+      return await usersRepository.create({
+        ...data,
+        password: await hashPassword(data.password),
+        role: "ADMIN",
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2003"
+      ) {
+        throw new AppError("Município informado não existe", 400);
+      }
+
+      throw error;
+    }
   },
 
   /**
-   * Altera role e/ou status de um usuário (somente admin).
+   * Ativa ou desativa um usuário (somente admin).
    */
   async adminUpdate(requester: Requester, idPayload: unknown, payload: unknown) {
     const id = idParam.parse(idPayload);
     const data = adminUpdateUserSchema.parse(payload);
 
     // Evita que o admin tire o proprio acesso e o sistema fique sem admin.
-    const removesOwnAccess =
-      data.is_active === false || (data.role !== undefined && data.role !== "ADMIN");
-
-    if (id === requester.id && removesOwnAccess) {
-      throw new AppError(
-        "Você não pode desativar nem rebaixar o próprio usuário",
-        400,
-      );
+    if (id === requester.id && !data.is_active) {
+      throw new AppError("Você não pode desativar o próprio usuário", 400);
     }
 
     await findOrFail(id);

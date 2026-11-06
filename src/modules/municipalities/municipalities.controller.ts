@@ -15,4 +15,13 @@ export const municipalitiesController = {
 
     res.json(municipality);
   },
+
+  async update(req: Request, res: Response) {
+    const municipality = await municipalitiesServices.update(
+      req.params.ibgeCode,
+      req.body,
+    );
+
+    res.json(municipality);
+  },
 };
