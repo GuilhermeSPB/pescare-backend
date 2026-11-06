@@ -1,15 +1,34 @@
 import { AppError } from "@shared/errors/app-error.js";
 import { idParam } from "@shared/schemas/id-param.js";
+import type { Role } from "@shared/constants/roles.js";
 import { toIsoDate, toMonthDay } from "@shared/utils/dates.js";
-import { fishingBanPeriodsRepository } from "./fishing-ban-periods.repository.js";
+import {
+  fishingBanPeriodsRepository,
+  type PreviousVersionEnd,
+} from "./fishing-ban-periods.repository.js";
 import {
   createFishingBanPeriodSchema,
   inEffectQuerySchema,
+  municipalityQuerySchema,
   updateFishingBanPeriodSchema,
+  type CreateFishingBanPeriodType,
   type FishingBanNormType,
   type FishingBanType,
   type UpdateFishingBanPeriodFields,
 } from "./fishing-ban-periods.schema.js";
+import {
+  assertStartsAfter,
+  buildVersionChains,
+  resolveSupersededEnd,
+  shiftSupersededEnd,
+  type VersionInfo,
+} from "./fishing-ban-periods.versions.js";
+import {
+  classifyOnDate,
+  isDateInRecurringWindow,
+  nextStartOnOrAfter,
+  type DateClassification,
+} from "./fishing-ban-periods.calendar.js";
 
 type PeriodListRow = Awaited<
   ReturnType<typeof fishingBanPeriodsRepository.getAll>
@@ -18,12 +37,17 @@ type PeriodDetailRow = NonNullable<
   Awaited<ReturnType<typeof fishingBanPeriodsRepository.getById>>
 >;
 type PeriodBaseRow = Omit<PeriodDetailRow, "fishing_ban_coverage">;
+type PeriodWindowRow = PeriodBaseRow["fishing_ban_period_window"][number];
 type PeriodCurrentState = NonNullable<
   Awaited<ReturnType<typeof fishingBanPeriodsRepository.getForUpdate>>
 >;
 type InEffectCandidate = Awaited<
   ReturnType<typeof fishingBanPeriodsRepository.getInEffectCandidates>
 >[number];
+type MunicipalityCandidate = Awaited<
+  ReturnType<typeof fishingBanPeriodsRepository.getForMunicipality>
+>[number];
+type MunicipalityEntry = NonNullable<ReturnType<typeof toMunicipalityEntry>>;
 
 interface FishingBanText {
   name: string;
@@ -35,6 +59,11 @@ const SPECIES_SCOPE_MESSAGE =
   "Informe ao menos uma espécie ou marque todas as espécies";
 const LOCATION_TYPES_SCOPE_MESSAGE =
   "Informe ao menos um tipo de local ou marque todos os tipos de local";
+const OLD_VERSION_MESSAGE = "Versões antigas não podem ser alteradas";
+const ONLY_CURRENT_VERSION_MESSAGE =
+  "Só a versão atual e ativa de um período pode ganhar uma nova versão";
+const PENDING_DRAFT_MESSAGE = "Este período já tem uma nova versão em rascunho";
+const ALREADY_ACTIVE_MESSAGE = "Este período já está ativo";
 
 // Normas criadas fora da API podem ter `rule` vazio; `name` guarda o mesmo
 // texto nas criadas por aqui.
@@ -42,12 +71,18 @@ function ruleText(fishingBan: FishingBanText) {
   return fishingBan.rule ?? fishingBan.name;
 }
 
+function toWindowResponse(window: PeriodWindowRow) {
+  return {
+    start_date: toMonthDay(window.start_date),
+    end_date: toMonthDay(window.end_date),
+  };
+}
+
 function toBaseResponse({
   fishing_ban,
+  fishing_ban_period_window,
   fishing_ban_species,
   fishing_ban_type_location,
-  start_date,
-  end_date,
   start_in,
   valid_until,
   ...period
@@ -59,8 +94,7 @@ function toBaseResponse({
       rule: ruleText(fishing_ban),
       fishing_ban_type: fishing_ban.fishing_ban_type,
     },
-    start_date: toMonthDay(start_date),
-    end_date: toMonthDay(end_date),
+    windows: fishing_ban_period_window.map(toWindowResponse),
     start_in: toIsoDate(start_in),
     valid_until: valid_until === null ? null : toIsoDate(valid_until),
     species: fishing_ban_species.map((link) => link.species),
@@ -83,6 +117,48 @@ function toDetailResponse({ fishing_ban_coverage, ...period }: PeriodDetailRow) 
     ...toBaseResponse(period),
     municipalities: fishing_ban_coverage.map((coverage) => coverage.municipality),
   };
+}
+
+// O rascunho pendente so interessa na versao atual, que e onde a tela
+// oferece "Abrir rascunho".
+function toVersionFields(id: number, info: VersionInfo) {
+  const isCurrentVersion = info.currentId === id;
+
+  return {
+    version: info.version,
+    is_current_version: isCurrentVersion,
+    pending_version_id: isCurrentVersion ? info.pendingId : null,
+  };
+}
+
+async function loadVersionChains() {
+  return buildVersionChains(await fishingBanPeriodsRepository.getVersionRows());
+}
+
+function requireVersionInfo(chains: Map<number, VersionInfo>, id: number) {
+  const info = chains.get(id);
+
+  if (!info) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  return info;
+}
+
+async function toDetailWithVersion(period: PeriodDetailRow) {
+  const info = requireVersionInfo(await loadVersionChains(), period.id);
+
+  return { ...toDetailResponse(period), ...toVersionFields(period.id, info) };
+}
+
+async function requirePeriodState(id: number) {
+  const period = await fishingBanPeriodsRepository.getForUpdate(id);
+
+  if (!period) {
+    throw new AppError(NOT_FOUND_MESSAGE, 404);
+  }
+
+  return period;
 }
 
 // Com "todas" marcado a lista fica vazia; sem ele, precisa de ao menos um
@@ -125,6 +201,25 @@ function assertValidity(startIn: Date, validUntil: Date | null) {
       400,
     );
   }
+}
+
+// Regras comuns ao periodo novo e a nova versao.
+function resolveCreateData(data: CreateFishingBanPeriodType): CreateFishingBanPeriodType {
+  assertValidity(data.start_in, data.valid_until ?? null);
+
+  return {
+    ...data,
+    species_ids: resolveScope(
+      data.applies_to_all_species,
+      data.species_ids,
+      SPECIES_SCOPE_MESSAGE,
+    ),
+    location_type_ids: resolveScope(
+      data.applies_to_all_location_types,
+      data.location_type_ids,
+      LOCATION_TYPES_SCOPE_MESSAGE,
+    ),
+  };
 }
 
 // `rule` e `fishing_ban_type` andam juntos: se vier so um, o outro vem da
@@ -182,23 +277,33 @@ function mergeFields(
   };
 }
 
-// MMDD numerico (15 de novembro -> 1115): o ano nao entra na janela.
-function toMonthDayNumber(date: Date) {
-  return (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
-}
+// Corrigir o inicio de uma versao que substituiu outra move junto o fim da
+// anterior, para o historico nao ficar com buraco nem sobreposicao.
+function resolvePreviousShift(
+  newStartIn: Date | undefined,
+  current: PeriodCurrentState,
+): PreviousVersionEnd | undefined {
+  const previous = current.previous_period;
 
-// A janela pode virar o ano (11-15 -> 03-15): nesse caso a data vale do
-// inicio ate o fim do ano ou do comeco do ano ate o fim da janela.
-function isDateInRecurringWindow(date: Date, startDate: Date, endDate: Date) {
-  const day = toMonthDayNumber(date);
-  const start = toMonthDayNumber(startDate);
-  const end = toMonthDayNumber(endDate);
-
-  if (start <= end) {
-    return start <= day && day <= end;
+  if (newStartIn === undefined || previous === null) {
+    return undefined;
   }
 
-  return day >= start || day <= end;
+  assertStartsAfter(previous.start_in, newStartIn);
+
+  if (current.status !== "ACTIVE") {
+    return undefined;
+  }
+
+  const endsOn = shiftSupersededEnd(previous.valid_until, current.start_in, newStartIn);
+
+  return endsOn && { id: previous.id, endsOn };
+}
+
+function isDateInAnyWindow(date: Date, period: InEffectCandidate) {
+  return period.fishing_ban_period_window.some((window) =>
+    isDateInRecurringWindow(date, window.start_date, window.end_date),
+  );
 }
 
 function appliesToSpecies(period: InEffectCandidate, speciesId: number) {
@@ -212,35 +317,118 @@ function toInEffectPeriod(period: InEffectCandidate) {
   return {
     id: period.id,
     rule: ruleText(period.fishing_ban),
-    start_date: toMonthDay(period.start_date),
-    end_date: toMonthDay(period.end_date),
+    windows: period.fishing_ban_period_window.map(toWindowResponse),
   };
+}
+
+// Rascunho é trabalho do admin: o pescador só enxerga o que está ativo.
+function isVisibleToRole(status: string, role?: Role) {
+  return role !== "FISHER" || status === "ACTIVE";
+}
+
+// Situação do período no dia, na forma que a listagem da cidade devolve.
+function toMunicipalityEntry(period: MunicipalityCandidate, date: Date) {
+  const classification = classifyOnDate(
+    {
+      start_in: period.start_in,
+      valid_until: period.valid_until,
+      windows: period.fishing_ban_period_window,
+    },
+    date,
+  );
+
+  if (!classification) {
+    return null;
+  }
+
+  return { ...toBaseResponse(period), ...toClassificationResponse(classification) };
+}
+
+function toClassificationResponse(classification: DateClassification) {
+  return {
+    status: classification.status,
+    starts_on: classification.starts_on === null ? null : toIsoDate(classification.starts_on),
+    ends_on: classification.ends_on === null ? null : toIsoDate(classification.ends_on),
+  };
+}
+
+// Vigentes primeiro, com o que termina antes na frente; depois os próximos, pelo início.
+function compareMunicipalityEntries(a: MunicipalityEntry, b: MunicipalityEntry) {
+  const rank = (entry: MunicipalityEntry) => (entry.status === "EM_VIGOR" ? 0 : 1);
+  const when = (entry: MunicipalityEntry) => entry.ends_on ?? entry.starts_on ?? "";
+
+  return rank(a) - rank(b) || when(a).localeCompare(when(b)) || a.id - b.id;
 }
 
 export const fishingBanPeriodsServices = {
   /**
-   * Lista os períodos de defeso, vigentes e encerrados, com a cobertura
-   * resumida (contagem de municípios e UFs).
+   * Lista os períodos de defeso, um por período: a versão atual, com a
+   * cobertura resumida (contagem de municípios e UFs).
    */
-  async getAll() {
+  async getAll(role?: Role) {
     const periods = await fishingBanPeriodsRepository.getAll();
+    const chains = buildVersionChains(periods);
 
-    return periods.map(toListResponse);
+    return periods
+      .filter((period) => chains.get(period.id)?.currentId === period.id)
+      .filter((period) => isVisibleToRole(period.status, role))
+      .map((period) => ({
+        ...toListResponse(period),
+        ...toVersionFields(period.id, requireVersionInfo(chains, period.id)),
+      }));
   },
 
   /**
-   * Seleciona um período de defeso pelo ID, com os municípios cobertos.
+   * Seleciona uma versão de período de defeso pelo ID, com os municípios
+   * cobertos e a posição dela no histórico.
    */
-  async getById(payload: unknown) {
+  async getById(payload: unknown, role?: Role) {
     const id = idParam.parse(payload);
 
     const period = await fishingBanPeriodsRepository.getById(id);
 
-    if (!period) {
+    if (!period || !isVisibleToRole(period.status, role)) {
       throw new AppError(NOT_FOUND_MESSAGE, 404);
     }
 
-    return toDetailResponse(period);
+    return await toDetailWithVersion(period);
+  },
+
+  /**
+   * Lista todas as versões do período a que o ID pertence, da mais nova para
+   * a mais antiga.
+   */
+  async getVersions(payload: unknown, role?: Role) {
+    const id = idParam.parse(payload);
+
+    const chains = await loadVersionChains();
+    const { chainIds } = requireVersionInfo(chains, id);
+    const periods = await fishingBanPeriodsRepository.getManyByIds(chainIds);
+    const periodById = new Map(periods.map((period) => [period.id, period]));
+
+    return chainIds.flatMap((versionId) => {
+      const period = periodById.get(versionId);
+
+      return period && isVisibleToRole(period.status, role)
+        ? [{ ...toListResponse(period), ...toVersionFields(versionId, requireVersionInfo(chains, versionId)) }]
+        : [];
+    });
+  },
+
+  /**
+   * Defesos que valem na cidade no dia: os vigentes e os que vão começar. Rascunho e
+   * encerrados ficam de fora. Alimenta a home e a aba Defesos do pescador.
+   *
+   * @example
+   * getForMunicipality({ municipality: "3550308", date: "2026-11-03" })
+   */
+  async getForMunicipality(query: unknown) {
+    const { municipality, date } = municipalityQuerySchema.parse(query);
+    const periods = await fishingBanPeriodsRepository.getForMunicipality(municipality, date);
+
+    return periods
+      .flatMap((period) => toMunicipalityEntry(period, date) ?? [])
+      .sort(compareMunicipalityEntries);
   },
 
   /**
@@ -254,7 +442,7 @@ export const fishingBanPeriodsServices = {
     const candidates =
       await fishingBanPeriodsRepository.getInEffectCandidates(filters);
     const periods = candidates.filter((period) =>
-      isDateInRecurringWindow(filters.date, period.start_date, period.end_date),
+      isDateInAnyWindow(filters.date, period),
     );
 
     return filters.speciesIds.map((speciesId) => {
@@ -271,52 +459,103 @@ export const fishingBanPeriodsServices = {
   },
 
   /**
-   * Cria um período de defeso (somente admin). Reaproveita a norma com o
-   * mesmo texto de portaria ou cria uma.
+   * Cria um período de defeso (somente admin), ativo ou como rascunho.
+   * Reaproveita a norma com o mesmo texto de portaria ou cria uma.
    */
   async create(payload: unknown) {
-    const data = createFishingBanPeriodSchema.parse(payload);
+    const data = resolveCreateData(createFishingBanPeriodSchema.parse(payload));
 
-    assertValidity(data.start_in, data.valid_until ?? null);
+    const period = await fishingBanPeriodsRepository.create(data);
 
-    const period = await fishingBanPeriodsRepository.create({
-      ...data,
-      species_ids: resolveScope(
-        data.applies_to_all_species,
-        data.species_ids,
-        SPECIES_SCOPE_MESSAGE,
-      ),
-      location_type_ids: resolveScope(
-        data.applies_to_all_location_types,
-        data.location_type_ids,
-        LOCATION_TYPES_SCOPE_MESSAGE,
-      ),
-    });
-
-    return toDetailResponse(period);
+    return await toDetailWithVersion(period);
   },
 
   /**
-   * Atualiza um período de defeso (somente admin). Listas enviadas
-   * substituem as anteriores inteiras.
+   * Cria uma nova versão a partir da versão atual (somente admin). Ativa, ela
+   * encerra a atual na véspera do próprio início; como rascunho, a atual
+   * continua vigente até a ativação.
+   */
+  async createVersion(idPayload: unknown, payload: unknown) {
+    const id = idParam.parse(idPayload);
+    const data = resolveCreateData(createFishingBanPeriodSchema.parse(payload));
+
+    const current = await requirePeriodState(id);
+    const info = requireVersionInfo(await loadVersionChains(), id);
+
+    if (info.currentId !== id || current.status !== "ACTIVE") {
+      throw new AppError(ONLY_CURRENT_VERSION_MESSAGE, 409);
+    }
+
+    if (info.pendingId !== null) {
+      throw new AppError(PENDING_DRAFT_MESSAGE, 409);
+    }
+
+    assertStartsAfter(current.start_in, data.start_in);
+
+    const previous: PreviousVersionEnd = {
+      id,
+      ...(data.status === "ACTIVE" && {
+        endsOn: resolveSupersededEnd(current.valid_until, data.start_in),
+      }),
+    };
+    const period = await fishingBanPeriodsRepository.create(data, previous);
+
+    return await toDetailWithVersion(period);
+  },
+
+  /**
+   * Ativa um rascunho (somente admin). Se ele é a nova versão de outro
+   * período, a versão anterior passa a valer até a véspera do início dele.
+   */
+  async activate(idPayload: unknown) {
+    const id = idParam.parse(idPayload);
+
+    const period = await requirePeriodState(id);
+
+    if (period.status !== "DRAFT") {
+      throw new AppError(ALREADY_ACTIVE_MESSAGE, 409);
+    }
+
+    const previous = period.previous_period;
+
+    if (previous) {
+      assertStartsAfter(previous.start_in, period.start_in);
+    }
+
+    const activated = await fishingBanPeriodsRepository.activate(
+      id,
+      previous
+        ? { id: previous.id, endsOn: resolveSupersededEnd(previous.valid_until, period.start_in) }
+        : undefined,
+    );
+
+    return await toDetailWithVersion(activated);
+  },
+
+  /**
+   * Corrige a versão atual ou um rascunho no lugar (somente admin). Listas
+   * enviadas substituem as anteriores inteiras; versões antigas são só
+   * leitura.
    */
   async update(idPayload: unknown, payload: unknown) {
     const id = idParam.parse(idPayload);
     const { rule, fishing_ban_type, ...fields } =
       updateFishingBanPeriodSchema.parse(payload);
 
-    const current = await fishingBanPeriodsRepository.getForUpdate(id);
+    const current = await requirePeriodState(id);
+    const info = requireVersionInfo(await loadVersionChains(), id);
 
-    if (!current) {
-      throw new AppError(NOT_FOUND_MESSAGE, 404);
+    if (info.currentId !== id && current.status !== "DRAFT") {
+      throw new AppError(OLD_VERSION_MESSAGE, 409);
     }
 
     const period = await fishingBanPeriodsRepository.update(
       id,
       mergeFields(fields, current),
       mergeNorm(rule, fishing_ban_type, current),
+      resolvePreviousShift(fields.start_in, current),
     );
 
-    return toDetailResponse(period);
+    return await toDetailWithVersion(period);
   },
 };
