@@ -1,4 +1,9 @@
 import { prisma } from "@core/prisma.js";
+import {
+  ACCENTED_LETTERS,
+  UNACCENTED_LETTERS,
+  buildAccentInsensitivePattern,
+} from "@shared/utils/accent-insensitive-search.js";
 import { stripUndefined } from "@shared/utils/strip-undefined.js";
 import type { Role } from "@shared/constants/roles.js";
 import type {
@@ -20,12 +25,43 @@ const safeUserSelect = {
   municipality: { select: { name: true, uf: true } },
 } as const;
 
+// SQL direto porque o Prisma nao compara ignorando acentos. Devolve so os ids;
+// as linhas vem do findMany, com o select seguro de sempre.
+async function findUserIdsBySearch(searchTerm: string, filters: ListUsersType) {
+  const pattern = buildAccentInsensitivePattern(searchTerm);
+  const isActive = filters.isActive ?? null;
+  const role = filters.role ?? null;
+  const rows = await prisma.$queryRaw<{ id: number }[]>`
+    SELECT id
+    FROM pescare.users
+    WHERE (${isActive}::boolean IS NULL OR is_active = ${isActive}::boolean)
+      AND (${role}::text IS NULL OR role = ${role}::text)
+      AND (
+        translate(lower(name), ${ACCENTED_LETTERS}, ${UNACCENTED_LETTERS}) LIKE ${pattern}
+        OR translate(lower(email), ${ACCENTED_LETTERS}, ${UNACCENTED_LETTERS}) LIKE ${pattern}
+      )
+    ORDER BY name ASC
+    LIMIT ${filters.limit ?? null}::int
+  `;
+
+  return rows.map((row) => row.id);
+}
+
 export const usersRepository = {
   getAll: async (filters: ListUsersType) => {
+    const matchingIds =
+      filters.search === undefined
+        ? undefined
+        : await findUserIdsBySearch(filters.search, filters);
+
     return await prisma.users.findMany({
-      where: stripUndefined({ is_active: filters.isActive, role: filters.role }),
+      where: {
+        ...stripUndefined({ is_active: filters.isActive, role: filters.role }),
+        ...(matchingIds !== undefined && { id: { in: matchingIds } }),
+      },
       select: safeUserSelect,
       orderBy: { name: "asc" },
+      ...(filters.limit !== undefined && { take: filters.limit }),
     });
   },
 

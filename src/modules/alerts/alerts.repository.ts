@@ -1,10 +1,6 @@
 import { prisma, Prisma } from "@core/prisma.js";
 import { stripUndefined } from "@shared/utils/strip-undefined.js";
-import type {
-  CreateAlertType,
-  UpdateAlertType,
-  UpdatePreferencesType,
-} from "./alerts.schema.js";
+import type { CreateAlertType, UpdateAlertType } from "./alerts.schema.js";
 
 const alertInclude = {
   alert_coverage: {
@@ -12,12 +8,12 @@ const alertInclude = {
   },
 } as const;
 
-const preferencesSelect = {
-  fishing_ban_alert: true,
-  news_alert: true,
-  event_alert: true,
-  system_alert: true,
+// A lista traz so a contagem: um comunicado pode cobrir milhares de municipios.
+const alertListInclude = {
+  _count: { select: { alert_coverage: true } },
 } as const;
+
+type AlertChanges = UpdateAlertType & { publication_date?: Date };
 
 function coverageRows(codes: string[]) {
   return codes.map((code) => ({ fk_municipality_ibge_code: code }));
@@ -27,7 +23,7 @@ export const alertsRepository = {
   getAll: async (where: Prisma.alertWhereInput) => {
     return await prisma.alert.findMany({
       where,
-      include: alertInclude,
+      include: alertListInclude,
       orderBy: [{ publication_date: "desc" }, { id: "desc" }],
     });
   },
@@ -59,7 +55,7 @@ export const alertsRepository = {
 
   // Quando `municipalities` vem preenchido, a cobertura e substituida
   // inteira, na mesma transacao da atualizacao do alerta.
-  update: async (id: number, data: UpdateAlertType) => {
+  update: async (id: number, data: AlertChanges) => {
     const { municipalities, ...alert } = data;
 
     return await prisma.$transaction(async (tx) => {
@@ -88,23 +84,5 @@ export const alertsRepository = {
     });
 
     return user?.fk_municipality_ibge_code ?? null;
-  },
-
-  getPreferences: async (userId: number) => {
-    return await prisma.alert_preference.findUnique({
-      where: { fk_user_id: userId },
-      select: preferencesSelect,
-    });
-  },
-
-  upsertPreferences: async (userId: number, data: UpdatePreferencesType) => {
-    const values = stripUndefined(data);
-
-    return await prisma.alert_preference.upsert({
-      where: { fk_user_id: userId },
-      create: { ...values, fk_user_id: userId },
-      update: values,
-      select: preferencesSelect,
-    });
   },
 };

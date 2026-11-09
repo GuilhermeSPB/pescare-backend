@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Pescare — DDL do banco (PostgreSQL)
 -- Schema: pescare
--- Gerado a partir do banco atual em 2026-11-04.
+-- Gerado a partir do banco atual em 2026-11-08.
 -- Tabelas em ordem de dependência: pode ser executado de cima para baixo.
 -- =============================================================================
 
@@ -99,13 +99,11 @@ CREATE INDEX idx_users_fk_municipality_ibge_code ON pescare.users (fk_municipali
 CREATE TABLE pescare.alert (
     id                INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     title             VARCHAR  NOT NULL,
-    description       VARCHAR,
-    alert_type        VARCHAR  NOT NULL,
+    description       VARCHAR  NOT NULL,
     publication_date  DATE     NOT NULL DEFAULT CURRENT_DATE,
     scope             VARCHAR  NOT NULL,
     status            VARCHAR  NOT NULL,
 
-    CONSTRAINT chk_alert_type   CHECK (alert_type IN ('FISHING_BAN', 'NEWS', 'EVENT', 'SYSTEM')),
     CONSTRAINT chk_alert_scope  CHECK (scope IN ('GLOBAL', 'MUNICIPAL')),
     CONSTRAINT chk_alert_status CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED'))
 );
@@ -123,19 +121,6 @@ CREATE TABLE pescare.alert_coverage (
 );
 
 CREATE INDEX idx_alert_coverage_fk_municipality_ibge_code ON pescare.alert_coverage (fk_municipality_ibge_code);
-
-CREATE TABLE pescare.alert_preference (
-    id                 INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    fishing_ban_alert  BOOLEAN  NOT NULL DEFAULT true,
-    news_alert         BOOLEAN  NOT NULL DEFAULT true,
-    event_alert        BOOLEAN  NOT NULL DEFAULT true,
-    system_alert       BOOLEAN  NOT NULL DEFAULT true,
-    fk_user_id         INTEGER  NOT NULL,
-
-    CONSTRAINT uq_alert_preference_user UNIQUE (fk_user_id),
-    CONSTRAINT fk_alert_preference_2 FOREIGN KEY (fk_user_id)
-        REFERENCES pescare.users (id) ON DELETE CASCADE
-);
 
 -- -----------------------------------------------------------------------------
 -- Registros de pesca
@@ -224,19 +209,18 @@ CREATE INDEX idx_commercialization_buyer_fk_buyer_type_id ON pescare.commerciali
 -- Defesos (períodos de proibição de pesca)
 -- -----------------------------------------------------------------------------
 
+-- O defeso ao longo do tempo; o que muda com a norma fica nas versões.
 CREATE TABLE pescare.fishing_ban (
     id                INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name              VARCHAR  NOT NULL,
-    rule              VARCHAR,
     description       VARCHAR,
     fishing_ban_type  VARCHAR  NOT NULL,
-    is_active         BOOLEAN  NOT NULL DEFAULT true,
 
     CONSTRAINT uq_fishing_ban_name UNIQUE (name),
     CONSTRAINT chk_fishing_ban_type CHECK (fishing_ban_type IN ('CONTINENTAL', 'MARINHO'))
 );
 
--- Cada período é uma versão de um defeso; fk_previous_period_id encadeia as versões.
+-- Cada período é uma versão de um defeso, com a portaria própria; start_in define a ordem.
 CREATE TABLE pescare.fishing_ban_period (
     id                             INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     applies_to_all_species         BOOLEAN  NOT NULL DEFAULT false,
@@ -246,22 +230,23 @@ CREATE TABLE pescare.fishing_ban_period (
     valid_until                    DATE,
     fk_fishing_ban_id              INTEGER  NOT NULL,
     status                         VARCHAR  NOT NULL DEFAULT 'ACTIVE',
-    fk_previous_period_id          INTEGER,
+    rule                           VARCHAR  NOT NULL,
 
-    CONSTRAINT uq_fishing_ban_period_previous UNIQUE (fk_previous_period_id),
+    CONSTRAINT uq_fishing_ban_period_start UNIQUE (fk_fishing_ban_id, start_in),
     CONSTRAINT chk_fishing_ban_period_status   CHECK (status IN ('DRAFT', 'ACTIVE')),
     CONSTRAINT chk_fishing_ban_period_validity CHECK (valid_until IS NULL OR valid_until >= start_in),
     CONSTRAINT fk_fishing_ban_period_2 FOREIGN KEY (fk_fishing_ban_id)
-        REFERENCES pescare.fishing_ban (id) ON DELETE RESTRICT,
-    CONSTRAINT fk_fishing_ban_period_3 FOREIGN KEY (fk_previous_period_id)
-        REFERENCES pescare.fishing_ban_period (id) ON DELETE RESTRICT
+        REFERENCES pescare.fishing_ban (id) ON DELETE RESTRICT
 );
 
-CREATE INDEX idx_fishing_ban_period_fk_fishing_ban_id ON pescare.fishing_ban_period (fk_fishing_ban_id);
+-- No máximo um rascunho por defeso. O status entra no índice porque, só com a chave estrangeira,
+-- o prisma db pull entende a relação como 1:1.
+CREATE UNIQUE INDEX uq_fishing_ban_period_draft
+    ON pescare.fishing_ban_period (fk_fishing_ban_id, status) WHERE status = 'DRAFT';
 
 -- Janelas anuais recorrentes; o ano é fixado em 2000 (só dia/mês importam).
 CREATE TABLE pescare.fishing_ban_period_window (
-    id                        INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,a
+    id                        INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     start_date                DATE     NOT NULL,
     end_date                  DATE     NOT NULL,
     fk_fishing_ban_period_id  INTEGER  NOT NULL,
@@ -281,7 +266,7 @@ CREATE TABLE pescare.fishing_ban_species (
 
     CONSTRAINT uq_fishing_ban_species UNIQUE (fk_species_id, fk_fishing_ban_period_id),
     CONSTRAINT fk_fishing_ban_species_2 FOREIGN KEY (fk_species_id)
-        REFERENCES pescare.species (id) ON DELETE CASCADE,
+        REFERENCES pescare.species (id) ON DELETE RESTRICT,
     CONSTRAINT fk_fishing_ban_species_3 FOREIGN KEY (fk_fishing_ban_period_id)
         REFERENCES pescare.fishing_ban_period (id) ON DELETE CASCADE
 );
@@ -295,7 +280,7 @@ CREATE TABLE pescare.fishing_ban_type_location (
 
     CONSTRAINT uq_fishing_ban_type_location UNIQUE (fk_type_location_id, fk_fishing_ban_period_id),
     CONSTRAINT fk_fishing_ban_type_location_2 FOREIGN KEY (fk_type_location_id)
-        REFERENCES pescare.type_location (id) ON DELETE CASCADE,
+        REFERENCES pescare.type_location (id) ON DELETE RESTRICT,
     CONSTRAINT fk_fishing_ban_type_location_3 FOREIGN KEY (fk_fishing_ban_period_id)
         REFERENCES pescare.fishing_ban_period (id) ON DELETE CASCADE
 );
@@ -309,7 +294,7 @@ CREATE TABLE pescare.fishing_ban_coverage (
 
     CONSTRAINT uq_fishing_ban_coverage UNIQUE (fk_municipality_ibge_code, fk_fishing_ban_period_id),
     CONSTRAINT fk_fishing_ban_coverage_2 FOREIGN KEY (fk_municipality_ibge_code)
-        REFERENCES pescare.municipality (ibge_code) ON DELETE CASCADE,
+        REFERENCES pescare.municipality (ibge_code) ON DELETE RESTRICT,
     CONSTRAINT fk_fishing_ban_coverage_3 FOREIGN KEY (fk_fishing_ban_period_id)
         REFERENCES pescare.fishing_ban_period (id) ON DELETE CASCADE
 );

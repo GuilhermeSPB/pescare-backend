@@ -1,3 +1,4 @@
+import { Prisma } from "@core/prisma.js";
 import { AppError } from "@shared/errors/app-error.js";
 import { idParam } from "@shared/schemas/id-param.js";
 import type { Role } from "@shared/constants/roles.js";
@@ -8,17 +9,20 @@ import {
 } from "./fishing-ban-periods.repository.js";
 import {
   createFishingBanPeriodSchema,
+  createFishingBanPeriodVersionSchema,
   inEffectQuerySchema,
   municipalityQuerySchema,
   updateFishingBanPeriodSchema,
-  type CreateFishingBanPeriodType,
-  type FishingBanNormType,
-  type FishingBanType,
+  type CreateFishingBanPeriodVersionType,
   type UpdateFishingBanPeriodFields,
 } from "./fishing-ban-periods.schema.js";
 import {
+  assertPreviousEndsBefore,
+  assertStartIsFree,
   assertStartsAfter,
   buildVersionChains,
+  findActiveNeighbors,
+  resolveEndBeforeNext,
   resolveSupersededEnd,
   shiftSupersededEnd,
   type VersionInfo,
@@ -49,26 +53,36 @@ type MunicipalityCandidate = Awaited<
 >[number];
 type MunicipalityEntry = NonNullable<ReturnType<typeof toMunicipalityEntry>>;
 
-interface FishingBanText {
-  name: string;
-  rule: string | null;
-}
-
 const NOT_FOUND_MESSAGE = "Período de defeso não encontrado";
 const SPECIES_SCOPE_MESSAGE =
   "Informe ao menos uma espécie ou marque todas as espécies";
 const LOCATION_TYPES_SCOPE_MESSAGE =
   "Informe ao menos um tipo de local ou marque todos os tipos de local";
-const OLD_VERSION_MESSAGE = "Versões antigas não podem ser alteradas";
+const OLD_VERSION_MESSAGE = "Vigências antigas não podem ser alteradas";
 const ONLY_CURRENT_VERSION_MESSAGE =
-  "Só a versão atual e ativa de um período pode ganhar uma nova versão";
-const PENDING_DRAFT_MESSAGE = "Este período já tem uma nova versão em rascunho";
+  "Só a vigência atual e ativa de um período pode dar lugar a uma nova";
+const PENDING_DRAFT_MESSAGE = "Este período já tem uma nova vigência em rascunho";
 const ALREADY_ACTIVE_MESSAGE = "Este período já está ativo";
+const CORRECTION_REQUIRED_MESSAGE =
+  "Esta vigência já começou. Se a norma mudou, crie uma nova vigência; " +
+  "se foi erro de cadastro, confirme a correção";
 
-// Normas criadas fora da API podem ter `rule` vazio; `name` guarda o mesmo
-// texto nas criadas por aqui.
-function ruleText(fishingBan: FishingBanText) {
-  return fishingBan.rule ?? fishingBan.name;
+// O nome e a chave unica que uma escrita aqui pode violar: o inicio da versao e o rascunho
+// unico sao conferidos antes de gravar.
+async function withUniqueBanName<T>(name: string | undefined, write: () => Promise<T>) {
+  try {
+    return await write();
+  } catch (error) {
+    if (
+      name !== undefined &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      throw new AppError(`Já existe um defeso com o nome "${name}"`, 409);
+    }
+
+    throw error;
+  }
 }
 
 function toWindowResponse(window: PeriodWindowRow) {
@@ -83,6 +97,7 @@ function toBaseResponse({
   fishing_ban_period_window,
   fishing_ban_species,
   fishing_ban_type_location,
+  rule,
   start_in,
   valid_until,
   ...period
@@ -91,7 +106,9 @@ function toBaseResponse({
     ...period,
     fishing_ban: {
       id: fishing_ban.id,
-      rule: ruleText(fishing_ban),
+      name: fishing_ban.name,
+      description: fishing_ban.description,
+      rule,
       fishing_ban_type: fishing_ban.fishing_ban_type,
     },
     windows: fishing_ban_period_window.map(toWindowResponse),
@@ -126,6 +143,7 @@ function toVersionFields(id: number, info: VersionInfo) {
 
   return {
     version: info.version,
+    previous_version_id: info.previousId,
     is_current_version: isCurrentVersion,
     pending_version_id: isCurrentVersion ? info.pendingId : null,
   };
@@ -204,7 +222,7 @@ function assertValidity(startIn: Date, validUntil: Date | null) {
 }
 
 // Regras comuns ao periodo novo e a nova versao.
-function resolveCreateData(data: CreateFishingBanPeriodType): CreateFishingBanPeriodType {
+function resolveCreateData<T extends CreateFishingBanPeriodVersionType>(data: T): T {
   assertValidity(data.start_in, data.valid_until ?? null);
 
   return {
@@ -219,24 +237,6 @@ function resolveCreateData(data: CreateFishingBanPeriodType): CreateFishingBanPe
       data.location_type_ids,
       LOCATION_TYPES_SCOPE_MESSAGE,
     ),
-  };
-}
-
-// `rule` e `fishing_ban_type` andam juntos: se vier so um, o outro vem da
-// norma atual.
-function mergeNorm(
-  rule: string | undefined,
-  fishingBanType: FishingBanType | undefined,
-  current: PeriodCurrentState,
-): FishingBanNormType | undefined {
-  if (rule === undefined && fishingBanType === undefined) {
-    return undefined;
-  }
-
-  return {
-    rule: rule ?? current.fishing_ban.name,
-    fishing_ban_type:
-      fishingBanType ?? (current.fishing_ban.fishing_ban_type as FishingBanType),
   };
 }
 
@@ -277,25 +277,89 @@ function mergeFields(
   };
 }
 
+function haveSameValues<T>(first: T[], second: T[]) {
+  const values = new Set(first);
+
+  return values.size === new Set(second).size && second.every((value) => values.has(value));
+}
+
+function windowKeys(windows: { start_date: Date; end_date: Date }[]) {
+  return windows.map((window) => `${window.start_date.getTime()}-${window.end_date.getTime()}`);
+}
+
+// O painel envia o formulário inteiro: só conta o que difere do que está gravado.
+function changesWhatTheVersionCovers(
+  fields: UpdateFishingBanPeriodFields,
+  current: PeriodCurrentState,
+) {
+  const differs = <T>(sent: T | undefined, stored: T) => sent !== undefined && sent !== stored;
+  const listDiffers = <T>(sent: T[] | undefined, stored: T[]) =>
+    sent !== undefined && !haveSameValues(sent, stored);
+
+  return (
+    differs(fields.rule, current.rule) ||
+    differs(fields.start_in?.getTime(), current.start_in.getTime()) ||
+    differs(fields.applies_to_all_species, current.applies_to_all_species) ||
+    differs(fields.applies_to_all_location_types, current.applies_to_all_location_types) ||
+    listDiffers(
+      fields.windows && windowKeys(fields.windows),
+      windowKeys(current.fishing_ban_period_window),
+    ) ||
+    listDiffers(
+      fields.species_ids,
+      current.fishing_ban_species.map((link) => link.fk_species_id),
+    ) ||
+    listDiffers(
+      fields.location_type_ids,
+      current.fishing_ban_type_location.map((link) => link.fk_type_location_id),
+    ) ||
+    listDiffers(
+      fields.municipalities,
+      current.fishing_ban_coverage.map((link) => link.fk_municipality_ibge_code),
+    )
+  );
+}
+
+// Mudar o que uma versão já iniciada cobre reescreve o passado: só com a confirmação de que
+// é erro de cadastro. Mudança na norma é nova versão.
+function assertCanRewriteVersion(
+  fields: UpdateFishingBanPeriodFields,
+  current: PeriodCurrentState,
+  isCorrection: boolean | undefined,
+) {
+  const hasStarted = current.status === "ACTIVE" && current.start_in.getTime() <= Date.now();
+
+  if (hasStarted && !isCorrection && changesWhatTheVersionCovers(fields, current)) {
+    throw new AppError(CORRECTION_REQUIRED_MESSAGE, 409);
+  }
+}
+
 // Corrigir o inicio de uma versao que substituiu outra move junto o fim da
 // anterior, para o historico nao ficar com buraco nem sobreposicao.
-function resolvePreviousShift(
+async function resolvePreviousShift(
+  id: number,
   newStartIn: Date | undefined,
   current: PeriodCurrentState,
-): PreviousVersionEnd | undefined {
-  const previous = current.previous_period;
+): Promise<PreviousVersionEnd | undefined> {
+  if (newStartIn === undefined) {
+    return undefined;
+  }
 
-  if (newStartIn === undefined || previous === null) {
+  const versions = await fishingBanPeriodsRepository.getBanVersions(current.fk_fishing_ban_id);
+
+  assertStartIsFree(versions, newStartIn, id);
+
+  const { previous } = findActiveNeighbors(versions, current.start_in, id);
+
+  if (current.status !== "ACTIVE" || previous === null) {
     return undefined;
   }
 
   assertStartsAfter(previous.start_in, newStartIn);
 
-  if (current.status !== "ACTIVE") {
-    return undefined;
-  }
-
   const endsOn = shiftSupersededEnd(previous.valid_until, current.start_in, newStartIn);
+
+  assertPreviousEndsBefore(endsOn ?? previous.valid_until, newStartIn);
 
   return endsOn && { id: previous.id, endsOn };
 }
@@ -316,7 +380,7 @@ function appliesToSpecies(period: InEffectCandidate, speciesId: number) {
 function toInEffectPeriod(period: InEffectCandidate) {
   return {
     id: period.id,
-    rule: ruleText(period.fishing_ban),
+    rule: period.rule,
     windows: period.fishing_ban_period_window.map(toWindowResponse),
   };
 }
@@ -459,25 +523,26 @@ export const fishingBanPeriodsServices = {
   },
 
   /**
-   * Cria um período de defeso (somente admin), ativo ou como rascunho.
-   * Reaproveita a norma com o mesmo texto de portaria ou cria uma.
+   * Cria um defeso com a primeira versão (somente admin), ativa ou como rascunho.
    */
   async create(payload: unknown) {
     const data = resolveCreateData(createFishingBanPeriodSchema.parse(payload));
 
-    const period = await fishingBanPeriodsRepository.create(data);
+    const period = await withUniqueBanName(data.name, () =>
+      fishingBanPeriodsRepository.create(data),
+    );
 
     return await toDetailWithVersion(period);
   },
 
   /**
-   * Cria uma nova versão a partir da versão atual (somente admin). Ativa, ela
-   * encerra a atual na véspera do próprio início; como rascunho, a atual
-   * continua vigente até a ativação.
+   * Cria uma nova versão a partir da versão atual (somente admin). Ativa, ela encerra a
+   * anterior na véspera do próprio início e, se começa antes de outra versão, termina na
+   * véspera dela; como rascunho, nada muda até a ativação.
    */
   async createVersion(idPayload: unknown, payload: unknown) {
     const id = idParam.parse(idPayload);
-    const data = resolveCreateData(createFishingBanPeriodSchema.parse(payload));
+    const data = resolveCreateData(createFishingBanPeriodVersionSchema.parse(payload));
 
     const current = await requirePeriodState(id);
     const info = requireVersionInfo(await loadVersionChains(), id);
@@ -490,22 +555,31 @@ export const fishingBanPeriodsServices = {
       throw new AppError(PENDING_DRAFT_MESSAGE, 409);
     }
 
-    assertStartsAfter(current.start_in, data.start_in);
+    const versions = await fishingBanPeriodsRepository.getBanVersions(current.fk_fishing_ban_id);
 
-    const previous: PreviousVersionEnd = {
-      id,
-      ...(data.status === "ACTIVE" && {
-        endsOn: resolveSupersededEnd(current.valid_until, data.start_in),
-      }),
-    };
-    const period = await fishingBanPeriodsRepository.create(data, previous);
+    assertStartIsFree(versions, data.start_in);
+
+    if (data.status === "DRAFT") {
+      const draft = await fishingBanPeriodsRepository.createVersion(current.fk_fishing_ban_id, data);
+
+      return await toDetailWithVersion(draft);
+    }
+
+    const { previous, next } = findActiveNeighbors(versions, data.start_in);
+    const period = await fishingBanPeriodsRepository.createVersion(
+      current.fk_fishing_ban_id,
+      { ...data, valid_until: resolveEndBeforeNext(data.valid_until ?? null, next) },
+      previous
+        ? { id: previous.id, endsOn: resolveSupersededEnd(previous.valid_until, data.start_in) }
+        : undefined,
+    );
 
     return await toDetailWithVersion(period);
   },
 
   /**
-   * Ativa um rascunho (somente admin). Se ele é a nova versão de outro
-   * período, a versão anterior passa a valer até a véspera do início dele.
+   * Ativa um rascunho (somente admin). A versão anterior passa a valer até a véspera do
+   * início dele e, se há outra versão depois, ele vale até a véspera dela.
    */
   async activate(idPayload: unknown) {
     const id = idParam.parse(idPayload);
@@ -516,14 +590,12 @@ export const fishingBanPeriodsServices = {
       throw new AppError(ALREADY_ACTIVE_MESSAGE, 409);
     }
 
-    const previous = period.previous_period;
-
-    if (previous) {
-      assertStartsAfter(previous.start_in, period.start_in);
-    }
+    const versions = await fishingBanPeriodsRepository.getBanVersions(period.fk_fishing_ban_id);
+    const { previous, next } = findActiveNeighbors(versions, period.start_in, id);
 
     const activated = await fishingBanPeriodsRepository.activate(
       id,
+      resolveEndBeforeNext(period.valid_until, next),
       previous
         ? { id: previous.id, endsOn: resolveSupersededEnd(previous.valid_until, period.start_in) }
         : undefined,
@@ -535,11 +607,11 @@ export const fishingBanPeriodsServices = {
   /**
    * Corrige a versão atual ou um rascunho no lugar (somente admin). Listas
    * enviadas substituem as anteriores inteiras; versões antigas são só
-   * leitura.
+   * leitura. Nome, descrição e ambiente valem para o defeso inteiro.
    */
   async update(idPayload: unknown, payload: unknown) {
     const id = idParam.parse(idPayload);
-    const { rule, fishing_ban_type, ...fields } =
+    const { name, description, fishing_ban_type, correction, ...fields } =
       updateFishingBanPeriodSchema.parse(payload);
 
     const current = await requirePeriodState(id);
@@ -549,11 +621,19 @@ export const fishingBanPeriodsServices = {
       throw new AppError(OLD_VERSION_MESSAGE, 409);
     }
 
-    const period = await fishingBanPeriodsRepository.update(
-      id,
-      mergeFields(fields, current),
-      mergeNorm(rule, fishing_ban_type, current),
-      resolvePreviousShift(fields.start_in, current),
+    const merged = mergeFields(fields, current);
+
+    assertCanRewriteVersion(merged, current, correction);
+
+    const previous = await resolvePreviousShift(id, fields.start_in, current);
+    const period = await withUniqueBanName(name, () =>
+      fishingBanPeriodsRepository.update(
+        id,
+        current.fk_fishing_ban_id,
+        merged,
+        { name, description, fishing_ban_type },
+        previous,
+      ),
     );
 
     return await toDetailWithVersion(period);

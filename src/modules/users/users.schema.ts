@@ -30,6 +30,9 @@ export const changePasswordSchema = z
 export const listUsersSchema = z.object({
   isActive: booleanQueryParam,
   role: z.enum(ROLES).optional(),
+  // Parte do nome ou do e-mail, sem diferenciar acentos.
+  search: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 // Cadastro feito por um admin: cria sempre outro ADMIN (decisao do time).

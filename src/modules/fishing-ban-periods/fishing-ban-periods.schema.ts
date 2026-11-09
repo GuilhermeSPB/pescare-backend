@@ -18,7 +18,10 @@ function unique<T>(values: T[]) {
   return [...new Set(values)];
 }
 
-// A norma e so o texto da portaria (ex.: "Portaria IBAMA Nº 48/07").
+// O nome identifica o defeso entre as versoes; a portaria pode mudar de uma para outra.
+const name = z.string().trim().min(1, "Informe o nome do defeso");
+const description = z.string().trim().nullable();
+// A portaria e so texto (ex.: "Portaria IBAMA Nº 48/07") e pertence a cada versao.
 const rule = z.string().trim().min(1, "Informe a portaria do defeso");
 const fishingBanType = z.enum(FISHING_BAN_TYPES);
 // Janela anual recorrente em MM-DD. Valida no ano 2000, o mesmo ano de
@@ -51,10 +54,12 @@ const municipalities = z
   .min(1, "Informe ao menos um município")
   .transform(unique);
 
-// Tambem e o corpo de uma nova versao (POST /:id/versions).
+// Cria o defeso junto com a primeira versao.
 export const createFishingBanPeriodSchema = z.object({
-  rule,
+  name,
+  description: description.optional(),
   fishing_ban_type: fishingBanType,
+  rule,
   windows,
   status: z.enum(FISHING_BAN_PERIOD_STATUSES).default("ACTIVE"),
   start_in: isoDate,
@@ -67,12 +72,23 @@ export const createFishingBanPeriodSchema = z.object({
   municipalities,
 });
 
+// Corpo de POST /:id/versions: nome e ambiente sao do defeso, que ja existe.
+export const createFishingBanPeriodVersionSchema = createFishingBanPeriodSchema.omit({
+  name: true,
+  description: true,
+  fishing_ban_type: true,
+});
+
 // Corrige a versao no lugar. O status nao muda por aqui: ativar tem rota
-// propria, porque encerra a versao anterior.
+// propria, porque encerra a versao anterior. `correction` confirma que mudar uma
+// versao ja iniciada e erro de cadastro, nao mudanca na norma.
 export const updateFishingBanPeriodSchema = z
   .object({
-    rule: rule.optional(),
+    name: name.optional(),
+    description: description.optional(),
     fishing_ban_type: fishingBanType.optional(),
+    correction: z.boolean().optional(),
+    rule: rule.optional(),
     windows: windows.optional(),
     start_in: isoDate.optional(),
     valid_until: isoDate.nullable().optional(),
@@ -108,13 +124,19 @@ export const municipalityQuerySchema = z.object({
 });
 
 export type CreateFishingBanPeriodType = z.infer<typeof createFishingBanPeriodSchema>;
+export type CreateFishingBanPeriodVersionType = z.infer<
+  typeof createFishingBanPeriodVersionSchema
+>;
 export type UpdateFishingBanPeriodType = z.infer<typeof updateFishingBanPeriodSchema>;
 export type InEffectQueryType = z.infer<typeof inEffectQuerySchema>;
 export type FishingBanPeriodWindowType = z.infer<typeof periodWindow>;
-// A norma do periodo: texto da portaria e ambiente, sempre juntos no upsert.
-export type FishingBanNormType = Pick<CreateFishingBanPeriodType, "rule" | "fishing_ban_type">;
-// Campos do PUT sem a norma (o service completa a norma a parte).
+// Campos do PUT gravados no defeso, valendo para todas as versoes.
+export type FishingBanFields = Pick<
+  UpdateFishingBanPeriodType,
+  "name" | "description" | "fishing_ban_type"
+>;
+// Campos do PUT gravados na versao.
 export type UpdateFishingBanPeriodFields = Omit<
   UpdateFishingBanPeriodType,
-  "rule" | "fishing_ban_type"
+  keyof FishingBanFields | "correction"
 >;

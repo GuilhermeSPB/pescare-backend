@@ -1,82 +1,107 @@
 import { AppError } from "@shared/errors/app-error.js";
 import { toIsoDate } from "@shared/utils/dates.js";
 
-// Regras das versoes de um periodo. Cada versao aponta para a que substitui
-// (fk_previous_period_id); a primeira nao aponta para nenhuma.
+// Regras das versoes de um defeso. Cada versao e uma linha de fishing_ban_period do mesmo
+// fishing_ban, e start_in define a ordem.
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export interface VersionRow {
   id: number;
-  fk_previous_period_id: number | null;
+  fk_fishing_ban_id: number;
   status: string;
+  start_in: Date;
+}
+
+// O que as regras de vigencia precisam saber de cada versao do defeso.
+export interface VersionValidity {
+  id: number;
+  status: string;
+  start_in: Date;
+  valid_until: Date | null;
 }
 
 export interface VersionInfo {
   // 1 e a versao mais antiga.
   version: number;
-  // A ACTIVE mais nova da cadeia; num periodo que so tem rascunho, o rascunho.
+  // A ACTIVE mais nova do defeso; num defeso que so tem rascunho, o rascunho.
   currentId: number;
-  // Rascunho de nova versao esperando ativacao.
+  // A ACTIVE que vem logo antes desta.
+  previousId: number | null;
+  // Rascunho esperando ativacao.
   pendingId: number | null;
   // Da versao mais nova para a mais antiga.
   chainIds: number[];
 }
 
-function followChain(firstId: number, nextIdByPreviousId: Map<number, number>) {
-  const chain = [firstId];
-  let nextId = nextIdByPreviousId.get(firstId);
-
-  while (nextId !== undefined) {
-    chain.push(nextId);
-    nextId = nextIdByPreviousId.get(nextId);
-  }
-
-  return chain;
+function isActive(version: { status: string }) {
+  return version.status === "ACTIVE";
 }
 
-function describeChain(chain: number[], statusById: Map<number, string>) {
-  const activeIds = chain.filter((id) => statusById.get(id) === "ACTIVE");
-  const currentId = activeIds.at(-1) ?? chain.at(-1)!;
-  const afterCurrentId = chain[chain.indexOf(currentId) + 1];
+function describeChain(chain: VersionRow[]) {
+  const currentId = chain.filter(isActive).at(-1)?.id ?? chain.at(-1)!.id;
   const pendingId =
-    afterCurrentId !== undefined && statusById.get(afterCurrentId) === "DRAFT"
-      ? afterCurrentId
-      : null;
+    chain.find((row) => row.status === "DRAFT" && row.id !== currentId)?.id ?? null;
 
-  return { currentId, pendingId, chainIds: [...chain].reverse() };
+  return { currentId, pendingId, chainIds: chain.map((row) => row.id).reverse() };
+}
+
+function groupByFishingBan(rows: VersionRow[]) {
+  const chains = new Map<number, VersionRow[]>();
+
+  for (const row of rows) {
+    chains.set(row.fk_fishing_ban_id, [...(chains.get(row.fk_fishing_ban_id) ?? []), row]);
+  }
+
+  return [...chains.values()].map((chain) =>
+    chain.sort((a, b) => a.start_in.getTime() - b.start_in.getTime()),
+  );
 }
 
 /**
- * Monta as cadeias de versoes em memoria (sao poucas centenas de periodos) e
- * devolve, para cada periodo, o numero da versao, a atual e o rascunho.
+ * Agrupa as versoes por defeso e devolve, para cada uma, o numero da versao, a atual, a
+ * anterior e o rascunho.
  *
  * @example
- * buildVersionChains(rows).get(7) // { version: 2, currentId: 7, pendingId: 9, chainIds: [9, 7, 3] }
+ * buildVersionChains(rows).get(7) // { version: 2, currentId: 7, previousId: 3, pendingId: 9, chainIds: [9, 7, 3] }
  */
 export function buildVersionChains(rows: VersionRow[]) {
-  const statusById = new Map(rows.map((row) => [row.id, row.status]));
-  const nextIdByPreviousId = new Map<number, number>();
-
-  for (const row of rows) {
-    if (row.fk_previous_period_id !== null) {
-      nextIdByPreviousId.set(row.fk_previous_period_id, row.id);
-    }
-  }
-
   const infoById = new Map<number, VersionInfo>();
-  const firstVersions = rows.filter((row) => row.fk_previous_period_id === null);
 
-  for (const first of firstVersions) {
-    const chain = followChain(first.id, nextIdByPreviousId);
-    const description = describeChain(chain, statusById);
+  for (const chain of groupByFishingBan(rows)) {
+    const description = describeChain(chain);
 
-    chain.forEach((id, index) => {
-      infoById.set(id, { ...description, version: index + 1 });
+    chain.forEach((row, index) => {
+      const previous = chain.slice(0, index).filter(isActive).at(-1);
+
+      infoById.set(row.id, {
+        ...description,
+        version: index + 1,
+        previousId: previous?.id ?? null,
+      });
     });
   }
 
   return infoById;
+}
+
+/**
+ * As versoes ativas logo antes e logo depois de uma data, ignorando a propria versao.
+ *
+ * @param versions versoes do defeso, ordenadas por start_in.
+ * @example
+ * findActiveNeighbors(versions, new Date("2026-03-01")) // { previous: v1, next: null }
+ */
+export function findActiveNeighbors(
+  versions: VersionValidity[],
+  startIn: Date,
+  ownId?: number,
+) {
+  const others = versions.filter((version) => isActive(version) && version.id !== ownId);
+  const previous = others.filter((version) => version.start_in < startIn).at(-1) ?? null;
+  const next = others.find((version) => version.start_in > startIn) ?? null;
+
+  return { previous, next };
 }
 
 /**
@@ -136,7 +161,56 @@ function formatBrazilianDate(date: Date) {
 }
 
 /**
- * A nova versao precisa comecar depois do inicio da anterior; senao a
+ * Fim de uma versao que tem outra ativa depois dela: sem fim informado, vale ate a vespera da
+ * seguinte; um fim que invade a seguinte e recusado.
+ *
+ * @example
+ * resolveEndBeforeNext(null, next) // a vespera de next.start_in
+ */
+export function resolveEndBeforeNext(validUntil: Date | null, next: VersionValidity | null) {
+  if (next === null) {
+    return validUntil;
+  }
+
+  const eve = dayBefore(next.start_in);
+
+  if (validUntil === null) {
+    return eve;
+  }
+
+  if (validUntil.getTime() > eve.getTime()) {
+    throw new AppError(
+      `A vigência precisa terminar até ${formatBrazilianDate(eve)}, ` +
+        `véspera do início da vigência seguinte`,
+      400,
+    );
+  }
+
+  return validUntil;
+}
+
+/**
+ * Duas versoes do mesmo defeso nao comecam no mesmo dia: e o inicio que define a ordem.
+ */
+export function assertStartIsFree(
+  versions: VersionValidity[],
+  startIn: Date,
+  ownId?: number,
+) {
+  const isTaken = versions.some(
+    (version) => version.id !== ownId && version.start_in.getTime() === startIn.getTime(),
+  );
+
+  if (isTaken) {
+    throw new AppError(
+      `Já existe uma vigência deste defeso começando em ${formatBrazilianDate(startIn)}`,
+      400,
+    );
+  }
+}
+
+/**
+ * Ao corrigir o inicio, a versao precisa continuar depois do inicio da anterior; senao a
  * anterior terminaria antes de comecar.
  */
 export function assertStartsAfter(previousStartIn: Date, newStartIn: Date) {
@@ -145,8 +219,23 @@ export function assertStartsAfter(previousStartIn: Date, newStartIn: Date) {
   }
 
   throw new AppError(
-    `A nova versão precisa começar depois de ${formatBrazilianDate(previousStartIn)}, ` +
-      `o início da versão anterior (recebido: ${formatBrazilianDate(newStartIn)})`,
+    `A vigência precisa começar depois de ${formatBrazilianDate(previousStartIn)}, ` +
+      `o início da vigência anterior (recebido: ${formatBrazilianDate(newStartIn)})`,
+    400,
+  );
+}
+
+/**
+ * Depois de corrigir o inicio, a versao anterior precisa ter terminado antes dele.
+ */
+export function assertPreviousEndsBefore(previousEnd: Date | null, newStartIn: Date) {
+  if (previousEnd !== null && previousEnd.getTime() < newStartIn.getTime()) {
+    return;
+  }
+
+  throw new AppError(
+    `O início não pode ser em ${formatBrazilianDate(newStartIn)}: ` +
+      `a vigência anterior ainda vale nessa data`,
     400,
   );
 }
