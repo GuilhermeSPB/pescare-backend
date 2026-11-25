@@ -2,14 +2,14 @@ import { z } from "zod";
 import { idParam } from "@shared/schemas/id-param.js";
 
 export const createFishingMethodSchema = z.object({
-  name: z.string().min(1, "Informe o nome do método de pesca").trim(),
+  name: z.string().trim().min(1, "Informe o nome do método de pesca"),
 });
 
 export const updateFishingMethodSchema = z.object({
   id: idParam,
   data: z
     .object({
-      name: z.string().min(1, "Informe o nome do método de pesca").trim(),
+      name: z.string().trim().min(1, "Informe o nome do método de pesca"),
       is_active: z.boolean(),
     })
     .partial()

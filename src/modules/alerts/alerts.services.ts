@@ -7,7 +7,6 @@ import {
   createAlertSchema,
   listAlertsSchema,
   updateAlertSchema,
-  updatePreferencesSchema,
   type AlertScope,
 } from "./alerts.schema.js";
 
@@ -20,13 +19,7 @@ type AlertWithCoverage = NonNullable<
   Awaited<ReturnType<typeof alertsRepository.getOne>>
 >;
 
-// Preferencias de quem ainda nao salvou nenhuma (mesmos defaults do banco).
-const DEFAULT_PREFERENCES = {
-  fishing_ban_alert: true,
-  news_alert: true,
-  event_alert: true,
-  system_alert: true,
-};
+type AlertListRow = Awaited<ReturnType<typeof alertsRepository.getAll>>[number];
 
 function toResponse({ alert_coverage, ...alert }: AlertWithCoverage) {
   return {
@@ -35,16 +28,23 @@ function toResponse({ alert_coverage, ...alert }: AlertWithCoverage) {
   };
 }
 
+function toListItem({ _count, ...alert }: AlertListRow) {
+  return { ...alert, municipality_count: _count.alert_coverage };
+}
+
 function assertCoverage(scope: AlertScope, municipalities: string[]) {
   if (scope === "MUNICIPAL" && municipalities.length === 0) {
     throw new AppError(
-      "Alerta municipal precisa de ao menos um município",
+      "Comunicado por município precisa de ao menos um município",
       400,
     );
   }
 
   if (scope === "GLOBAL" && municipalities.length > 0) {
-    throw new AppError("Alerta global não deve listar municípios", 400);
+    throw new AppError(
+      "Comunicado para todos os municípios não deve listar municípios",
+      400,
+    );
   }
 }
 
@@ -79,8 +79,8 @@ async function visibilityFilter(
 
 export const alertsServices = {
   /**
-   * Lista alertas. Admin vê todos (com filtros); pescador vê só os
-   * publicados para o seu município.
+   * Lista comunicados, com a contagem de municípios em vez da lista. Admin vê
+   * todos (com filtros); pescador vê só os publicados para o seu município.
    */
   async getAll(requester: Requester, query: unknown) {
     const filters = listAlertsSchema.parse(query);
@@ -89,7 +89,6 @@ export const alertsServices = {
       AND: [
         await visibilityFilter(requester),
         {
-          ...(filters.alert_type && { alert_type: filters.alert_type }),
           ...(filters.scope && { scope: filters.scope }),
           ...(filters.status && { status: filters.status }),
         },
@@ -98,11 +97,11 @@ export const alertsServices = {
 
     const alerts = await alertsRepository.getAll(where);
 
-    return alerts.map(toResponse);
+    return alerts.map(toListItem);
   },
 
   /**
-   * Seleciona um alerta pelo ID, respeitando a visibilidade do usuário.
+   * Seleciona um comunicado pelo ID, respeitando a visibilidade do usuário.
    */
   async getById(requester: Requester, payload: unknown) {
     const id = idParam.parse(payload);
@@ -112,14 +111,14 @@ export const alertsServices = {
     });
 
     if (!alert) {
-      throw new AppError("Alerta não encontrado", 404);
+      throw new AppError("Comunicado não encontrado", 404);
     }
 
     return toResponse(alert);
   },
 
   /**
-   * Cria um alerta e sua cobertura de municípios (somente admin).
+   * Cria um comunicado e sua cobertura de municípios (somente admin).
    */
   async create(payload: unknown) {
     const data = createAlertSchema.parse(payload);
@@ -130,7 +129,7 @@ export const alertsServices = {
   },
 
   /**
-   * Atualiza um alerta (somente admin). Se `municipalities` for enviado,
+   * Atualiza um comunicado (somente admin). Se `municipalities` for enviado,
    * substitui toda a cobertura.
    */
   async update(idPayload: unknown, payload: unknown) {
@@ -140,7 +139,7 @@ export const alertsServices = {
     const current = await alertsRepository.getOne({ id });
 
     if (!current) {
-      throw new AppError("Alerta não encontrado", 404);
+      throw new AppError("Comunicado não encontrado", 404);
     }
 
     const scope = data.scope ?? (current.scope as AlertScope);
@@ -155,34 +154,15 @@ export const alertsServices = {
       data.municipalities ?? (await alertsRepository.getCoverageCodes(id)),
     );
 
-    // Ao publicar, a data de publicacao passa a ser hoje (a nao ser que
-    // venha explicita).
-    if (
-      data.status === "PUBLISHED" &&
-      current.status !== "PUBLISHED" &&
-      data.publication_date === undefined
-    ) {
-      data.publication_date = today();
-    }
+    // Ao publicar, a data de publicacao passa a ser hoje.
+    const isBeingPublished =
+      data.status === "PUBLISHED" && current.status !== "PUBLISHED";
 
-    return toResponse(await alertsRepository.update(id, data));
-  },
-
-  /**
-   * Retorna as preferências de alerta do usuário (defaults se nunca salvou).
-   */
-  async getPreferences(userId: number) {
-    return (
-      (await alertsRepository.getPreferences(userId)) ?? DEFAULT_PREFERENCES
+    return toResponse(
+      await alertsRepository.update(id, {
+        ...data,
+        ...(isBeingPublished && { publication_date: today() }),
+      }),
     );
-  },
-
-  /**
-   * Atualiza as preferências de alerta do usuário.
-   */
-  async updatePreferences(userId: number, payload: unknown) {
-    const data = updatePreferencesSchema.parse(payload);
-
-    return await alertsRepository.upsertPreferences(userId, data);
   },
 };

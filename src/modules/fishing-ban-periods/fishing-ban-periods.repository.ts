@@ -2,7 +2,8 @@ import { prisma, Prisma } from "@core/prisma.js";
 import { stripUndefined } from "@shared/utils/strip-undefined.js";
 import type {
   CreateFishingBanPeriodType,
-  FishingBanNormType,
+  CreateFishingBanPeriodVersionType,
+  FishingBanFields,
   FishingBanPeriodWindowType,
   InEffectQueryType,
   UpdateFishingBanPeriodFields,
@@ -15,7 +16,7 @@ const windowsSelect = {
 
 const periodLinks = {
   fishing_ban: {
-    select: { id: true, name: true, rule: true, fishing_ban_type: true },
+    select: { id: true, name: true, description: true, fishing_ban_type: true },
   },
   fishing_ban_period_window: windowsSelect,
   fishing_ban_species: {
@@ -44,21 +45,15 @@ const detailInclude = {
   },
 } as const;
 
-// O que as regras de versao precisam saber da versao anterior.
-const previousPeriodSelect = {
-  select: { id: true, start_in: true, valid_until: true, status: true },
-} as const;
-
 type PeriodLinks = Pick<
   UpdateFishingBanPeriodFields,
   "windows" | "species_ids" | "location_type_ids" | "municipalities"
 >;
 
-// Versao anterior que passa a valer ate `endsOn`. Sem `endsOn` (rascunho), ela
-// so fica ligada e continua vigente.
+// Versao anterior que passa a valer ate `endsOn`.
 export interface PreviousVersionEnd {
   id: number;
-  endsOn?: Date;
+  endsOn: Date;
 }
 
 function windowRows(windows: FishingBanPeriodWindowType[]) {
@@ -77,26 +72,28 @@ function coverageRows(codes: string[]) {
   return codes.map((code) => ({ fk_municipality_ibge_code: code }));
 }
 
-// A norma e so o texto da portaria: `name` (chave unica) e `rule` guardam o
-// mesmo texto. Reaproveita a norma com esse texto ou cria uma. Normas que
-// perdem todos os periodos ficam no banco.
-function upsertFishingBan(
-  tx: Prisma.TransactionClient,
-  { rule, fishing_ban_type }: FishingBanNormType,
-) {
-  return tx.fishing_ban.upsert({
-    where: { name: rule },
-    create: { name: rule, rule, fishing_ban_type },
-    update: { fishing_ban_type },
-    select: { id: true },
-  });
+// Os campos de uma versao nova, com as ligacoes.
+function versionData({
+  windows,
+  species_ids,
+  location_type_ids,
+  municipalities,
+  ...period
+}: CreateFishingBanPeriodVersionType) {
+  return {
+    ...stripUndefined(period),
+    fishing_ban_period_window: { createMany: { data: windowRows(windows) } },
+    fishing_ban_species: { createMany: { data: speciesRows(species_ids) } },
+    fishing_ban_type_location: { createMany: { data: locationTypeRows(location_type_ids) } },
+    fishing_ban_coverage: { createMany: { data: coverageRows(municipalities) } },
+  };
 }
 
 async function endPreviousVersion(
   tx: Prisma.TransactionClient,
   previous: PreviousVersionEnd | undefined,
 ) {
-  if (previous?.endsOn === undefined) {
+  if (previous === undefined) {
     return;
   }
 
@@ -147,7 +144,7 @@ export const fishingBanPeriodsRepository = {
   getAll: async () => {
     return await prisma.fishing_ban_period.findMany({
       include: listInclude,
-      orderBy: [{ fishing_ban: { rule: "asc" } }, { id: "asc" }],
+      orderBy: [{ fishing_ban: { name: "asc" } }, { start_in: "asc" }],
     });
   },
 
@@ -168,7 +165,16 @@ export const fishingBanPeriodsRepository = {
   // So o necessario para montar as cadeias de versoes.
   getVersionRows: async () => {
     return await prisma.fishing_ban_period.findMany({
-      select: { id: true, fk_previous_period_id: true, status: true },
+      select: { id: true, fk_fishing_ban_id: true, status: true, start_in: true },
+    });
+  },
+
+  // Vigencia das versoes de um defeso, da mais antiga para a mais nova.
+  getBanVersions: async (fishingBanId: number) => {
+    return await prisma.fishing_ban_period.findMany({
+      where: { fk_fishing_ban_id: fishingBanId },
+      select: { id: true, status: true, start_in: true, valid_until: true },
+      orderBy: { start_in: "asc" },
     });
   },
 
@@ -177,15 +183,17 @@ export const fishingBanPeriodsRepository = {
     return await prisma.fishing_ban_period.findUnique({
       where: { id },
       select: {
+        fk_fishing_ban_id: true,
         status: true,
+        rule: true,
         start_in: true,
         valid_until: true,
         applies_to_all_species: true,
         applies_to_all_location_types: true,
-        previous_period: previousPeriodSelect,
-        fishing_ban: { select: { name: true, fishing_ban_type: true } },
+        fishing_ban_period_window: windowsSelect,
         fishing_ban_species: { select: { fk_species_id: true } },
         fishing_ban_type_location: { select: { fk_type_location_id: true } },
+        fishing_ban_coverage: { select: { fk_municipality_ibge_code: true } },
       },
     });
   },
@@ -228,8 +236,8 @@ export const fishingBanPeriodsRepository = {
       },
       select: {
         id: true,
+        rule: true,
         applies_to_all_species: true,
-        fishing_ban: { select: { name: true, rule: true } },
         fishing_ban_period_window: windowsSelect,
         fishing_ban_species: {
           where: { fk_species_id: { in: speciesIds } },
@@ -252,85 +260,81 @@ export const fishingBanPeriodsRepository = {
         OR: [{ valid_until: null }, { valid_until: { gte: date } }],
       },
       include: periodLinks,
-      orderBy: [{ fishing_ban: { rule: "asc" } }, { id: "asc" }],
+      orderBy: [{ rule: "asc" }, { id: "asc" }],
     });
   },
 
-  // Periodo novo ou nova versao de `previous`. Quando a nova versao ja nasce
-  // ativa, a anterior e encerrada na mesma transacao.
-  create: async (data: CreateFishingBanPeriodType, previous?: PreviousVersionEnd) => {
-    const {
-      rule,
-      fishing_ban_type,
-      windows,
-      species_ids,
-      location_type_ids,
-      municipalities,
-      ...period
-    } = data;
+  // Defeso novo com a primeira versao.
+  create: async ({
+    name,
+    description,
+    fishing_ban_type,
+    ...version
+  }: CreateFishingBanPeriodType) => {
+    return await prisma.fishing_ban_period.create({
+      data: {
+        ...versionData(version),
+        fishing_ban: {
+          create: stripUndefined({ name, description, fishing_ban_type }),
+        },
+      },
+      include: detailInclude,
+    });
+  },
 
+  // Nova versao de um defeso. Quando ela substitui outra, a anterior e encerrada na mesma
+  // transacao.
+  createVersion: async (
+    fishingBanId: number,
+    data: CreateFishingBanPeriodVersionType,
+    previous?: PreviousVersionEnd,
+  ) => {
     return await prisma.$transaction(async (tx) => {
       await endPreviousVersion(tx, previous);
 
-      const fishingBan = await upsertFishingBan(tx, { rule, fishing_ban_type });
-
       return await tx.fishing_ban_period.create({
-        data: {
-          ...stripUndefined(period),
-          fk_fishing_ban_id: fishingBan.id,
-          fk_previous_period_id: previous?.id ?? null,
-          fishing_ban_period_window: { createMany: { data: windowRows(windows) } },
-          fishing_ban_species: {
-            createMany: { data: speciesRows(species_ids) },
-          },
-          fishing_ban_type_location: {
-            createMany: { data: locationTypeRows(location_type_ids) },
-          },
-          fishing_ban_coverage: {
-            createMany: { data: coverageRows(municipalities) },
-          },
-        },
+        data: { ...versionData(data), fk_fishing_ban_id: fishingBanId },
         include: detailInclude,
       });
     });
   },
 
-  // Norma, ligacoes e periodo mudam na mesma transacao. Sem `norm`, o
-  // periodo continua na norma atual. `previous` acompanha a correcao do
+  // Defeso, ligacoes e versao mudam na mesma transacao. `previous` acompanha a correcao do
   // inicio de uma versao que substituiu outra.
   update: async (
     id: number,
+    fishingBanId: number,
     data: UpdateFishingBanPeriodFields,
-    norm: FishingBanNormType | undefined,
+    fishingBan: FishingBanFields,
     previous?: PreviousVersionEnd,
   ) => {
     const { windows, species_ids, location_type_ids, municipalities, ...period } = data;
+    const fishingBanData = stripUndefined(fishingBan);
 
     return await prisma.$transaction(async (tx) => {
       await replaceLinks(tx, id, data);
       await endPreviousVersion(tx, previous);
 
-      const fishingBan = norm && (await upsertFishingBan(tx, norm));
+      if (Object.keys(fishingBanData).length > 0) {
+        await tx.fishing_ban.update({ where: { id: fishingBanId }, data: fishingBanData });
+      }
 
       return await tx.fishing_ban_period.update({
         where: { id },
-        data: {
-          ...stripUndefined(period),
-          ...(fishingBan && { fk_fishing_ban_id: fishingBan.id }),
-        },
+        data: stripUndefined(period),
         include: detailInclude,
       });
     });
   },
 
-  // Ativa um rascunho e, se ele substitui outra versao, encerra a anterior.
-  activate: async (id: number, previous?: PreviousVersionEnd) => {
+  // Ativa um rascunho, encerra a versao anterior e, se ha outra depois dele, grava o fim.
+  activate: async (id: number, validUntil: Date | null, previous?: PreviousVersionEnd) => {
     return await prisma.$transaction(async (tx) => {
       await endPreviousVersion(tx, previous);
 
       return await tx.fishing_ban_period.update({
         where: { id },
-        data: { status: "ACTIVE" },
+        data: { status: "ACTIVE", valid_until: validUntil },
         include: detailInclude,
       });
     });

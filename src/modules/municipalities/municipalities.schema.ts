@@ -8,6 +8,10 @@ export const listMunicipalitiesSchema = z.object({
     .toUpperCase()
     .optional(),
   name: z.string().trim().min(1).optional(),
+  // Parte do nome (sem diferenciar acentos) ou do codigo IBGE.
+  search: z.string().trim().min(1).optional(),
+  // Sem limite, devolve tudo: o sign-up e os formularios precisam da lista inteira.
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 export const ibgeCodeParam = z

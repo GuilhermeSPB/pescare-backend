@@ -27,19 +27,4 @@ export const alertsController = {
 
     res.json(alert);
   },
-
-  async getPreferences(req: Request, res: Response) {
-    const preferences = await alertsServices.getPreferences(req.user!.id);
-
-    res.json(preferences);
-  },
-
-  async updatePreferences(req: Request, res: Response) {
-    const preferences = await alertsServices.updatePreferences(
-      req.user!.id,
-      req.body,
-    );
-
-    res.json(preferences);
-  },
 };

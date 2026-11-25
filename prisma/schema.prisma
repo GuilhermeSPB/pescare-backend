@@ -1,6 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -48,10 +49,8 @@ model commercialization_buyer {
 model fishing_ban {
   id                 Int                  @id @default(autoincrement())
   name               String               @unique(map: "uq_fishing_ban_name") @db.VarChar
-  rule               String?              @db.VarChar
   description        String?              @db.VarChar
   fishing_ban_type   String               @db.VarChar
-  is_active          Boolean              @default(true)
   fishing_ban_period fishing_ban_period[]
 
   @@schema("pescare")
@@ -61,7 +60,7 @@ model fishing_ban_species {
   id                       Int                @id @default(autoincrement())
   fk_species_id            Int
   fk_fishing_ban_period_id Int
-  species                  species            @relation(fields: [fk_species_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_species_2")
+  species                  species            @relation(fields: [fk_species_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_species_2")
   fishing_ban_period       fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_species_3")
 
   @@unique([fk_species_id, fk_fishing_ban_period_id], map: "uq_fishing_ban_species")
@@ -171,7 +170,6 @@ model users {
   role                      String            @db.VarChar
   is_active                 Boolean           @default(true)
   fk_municipality_ibge_code String            @db.VarChar
-  alert_preference          alert_preference?
   fishing_record            fishing_record[]
   municipality              municipality      @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onUpdate: NoAction, map: "fk_user_2")
 
@@ -192,8 +190,7 @@ model target_group {
 model alert {
   id               Int              @id @default(autoincrement())
   title            String           @db.VarChar
-  description      String?          @db.VarChar
-  alert_type       String           @db.VarChar
+  description      String           @db.VarChar
   publication_date DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
   scope            String           @db.VarChar
   status           String           @db.VarChar
@@ -214,23 +211,11 @@ model alert_coverage {
   @@schema("pescare")
 }
 
-model alert_preference {
-  id                Int     @id @default(autoincrement())
-  fishing_ban_alert Boolean @default(true)
-  news_alert        Boolean @default(true)
-  event_alert       Boolean @default(true)
-  system_alert      Boolean @default(true)
-  fk_user_id        Int     @unique(map: "uq_alert_preference_user")
-  users             users   @relation(fields: [fk_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_alert_preference_2")
-
-  @@schema("pescare")
-}
-
 model fishing_ban_coverage {
   id                        Int                @id @default(autoincrement())
   fk_municipality_ibge_code String             @db.VarChar
   fk_fishing_ban_period_id  Int
-  municipality              municipality       @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_2")
+  municipality              municipality       @relation(fields: [fk_municipality_ibge_code], references: [ibge_code], onUpdate: NoAction, map: "fk_fishing_ban_coverage_2")
   fishing_ban_period        fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_coverage_3")
 
   @@unique([fk_municipality_ibge_code, fk_fishing_ban_period_id], map: "uq_fishing_ban_coverage")
@@ -248,16 +233,15 @@ model fishing_ban_period {
   valid_until                   DateTime?                   @db.Date
   fk_fishing_ban_id             Int
   status                        String                      @default("ACTIVE") @db.VarChar
-  fk_previous_period_id         Int?                        @unique(map: "uq_fishing_ban_period_previous")
+  rule                          String                      @db.VarChar
   fishing_ban_coverage          fishing_ban_coverage[]
   fishing_ban                   fishing_ban                 @relation(fields: [fk_fishing_ban_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_period_2")
-  previous_period               fishing_ban_period?         @relation("fishing_ban_period_versions", fields: [fk_previous_period_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_fishing_ban_period_3")
-  next_period                   fishing_ban_period?         @relation("fishing_ban_period_versions")
   fishing_ban_period_window     fishing_ban_period_window[]
   fishing_ban_species           fishing_ban_species[]
   fishing_ban_type_location     fishing_ban_type_location[]
 
-  @@index([fk_fishing_ban_id], map: "idx_fishing_ban_period_fk_fishing_ban_id")
+  @@unique([fk_fishing_ban_id, start_in], map: "uq_fishing_ban_period_start")
+  @@unique([fk_fishing_ban_id, status], map: "uq_fishing_ban_period_draft", where: raw("((status)::text = 'DRAFT'::text)"))
   @@schema("pescare")
 }
 
@@ -277,7 +261,7 @@ model fishing_ban_type_location {
   id                       Int                @id @default(autoincrement())
   fk_type_location_id      Int
   fk_fishing_ban_period_id Int
-  type_location            TypeLocation       @relation(fields: [fk_type_location_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_2")
+  type_location            TypeLocation       @relation(fields: [fk_type_location_id], references: [id], onUpdate: NoAction, map: "fk_fishing_ban_type_location_2")
   fishing_ban_period       fishing_ban_period @relation(fields: [fk_fishing_ban_period_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_fishing_ban_type_location_3")
 
   @@unique([fk_type_location_id, fk_fishing_ban_period_id], map: "uq_fishing_ban_type_location")

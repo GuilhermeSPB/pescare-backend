@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ROLES } from "@shared/constants/roles.js";
 import { booleanQueryParam } from "@shared/schemas/boolean-query-param.js";
+import { emailSchema } from "@shared/schemas/email.js";
 
 const name = z.string().trim().min(1, "Informe o nome");
 const ibgeCode = z.string().length(7, "Código IBGE do município inválido");
@@ -30,6 +31,9 @@ export const changePasswordSchema = z
 export const listUsersSchema = z.object({
   isActive: booleanQueryParam,
   role: z.enum(ROLES).optional(),
+  // Parte do nome ou do e-mail, sem diferenciar acentos.
+  search: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 // Cadastro feito por um admin: cria sempre outro ADMIN (decisao do time).
@@ -37,7 +41,7 @@ export const listUsersSchema = z.object({
 // e descartado pelo zod.
 export const createUserSchema = z.object({
   name,
-  email: z.email("Informe um e-mail válido").trim().toLowerCase(),
+  email: emailSchema,
   password,
   fk_municipality_ibge_code: ibgeCode,
 });

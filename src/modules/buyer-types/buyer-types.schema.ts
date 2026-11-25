@@ -2,14 +2,14 @@ import { z } from "zod";
 import { idParam } from "@shared/schemas/id-param.js";
 
 export const createBuyerTypeSchema = z.object({
-  name: z.string().min(1, "Informe o nome do tipo de comprador").trim(),
+  name: z.string().trim().min(1, "Informe o nome do tipo de comprador"),
 });
 
 export const updateBuyerTypeSchema = z.object({
   id: idParam,
   data: z
     .object({
-      name: z.string().min(1, "Informe o nome do tipo de comprador").trim(),
+      name: z.string().trim().min(1, "Informe o nome do tipo de comprador"),
       is_active: z.boolean(),
     })
     .partial()

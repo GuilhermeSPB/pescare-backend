@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { emailSchema } from "@shared/schemas/email.js";
 
 export const signUpSchema = z.object({
-  name: z.string().min(1, "Informe o nome").trim(),
-  email: z.email("Informe um e-mail válido").trim().toLowerCase(),
+  name: z.string().trim().min(1, "Informe o nome"),
+  email: emailSchema,
   password: z.string().min(8, "A senha deve ter no mínimo 8 caracteres"),
   fk_municipality_ibge_code: z
     .string()
@@ -10,7 +11,7 @@ export const signUpSchema = z.object({
 });
 
 export const signInSchema = z.object({
-  email: z.email("Informe um e-mail válido").trim().toLowerCase(),
+  email: emailSchema,
   password: z.string().min(1, "Informe a senha"),
 });
 
