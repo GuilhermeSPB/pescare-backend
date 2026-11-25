@@ -10,6 +10,7 @@ import { municipalitiesRouter } from "@modules/municipalities/municipalities.rou
 import { alertsRouter } from "@modules/alerts/alerts.routes.js";
 import { fishingBanPeriodsRouter } from "@modules/fishing-ban-periods/fishing-ban-periods.routes.js";
 import { fishingRecordsRouter } from "@modules/fishing-records/fishing-records.routes.js";
+import { productionIndicatorsRouter } from "@modules/production-indicators/production-indicators.routes.js";
 
 import { isAuthenticated } from "@shared/middlewares/isAuthenticated.js";
 
@@ -26,5 +27,6 @@ routes.use("/users", isAuthenticated, usersRouter);
 routes.use("/alerts", isAuthenticated, alertsRouter);
 routes.use("/fishing-ban-periods", isAuthenticated, fishingBanPeriodsRouter);
 routes.use("/fishing-records", isAuthenticated, fishingRecordsRouter);
+routes.use("/production-indicators", isAuthenticated, productionIndicatorsRouter);
 
 export { routes };
