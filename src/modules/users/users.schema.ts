@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ROLES } from "@shared/constants/roles.js";
 import { booleanQueryParam } from "@shared/schemas/boolean-query-param.js";
+import { emailSchema } from "@shared/schemas/email.js";
 
 const name = z.string().trim().min(1, "Informe o nome");
 const ibgeCode = z.string().length(7, "Código IBGE do município inválido");
@@ -40,7 +41,7 @@ export const listUsersSchema = z.object({
 // e descartado pelo zod.
 export const createUserSchema = z.object({
   name,
-  email: z.email("Informe um e-mail válido").trim().toLowerCase(),
+  email: emailSchema,
   password,
   fk_municipality_ibge_code: ibgeCode,
 });

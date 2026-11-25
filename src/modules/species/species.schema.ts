@@ -4,9 +4,9 @@ import { idParam } from "@shared/schemas/id-param.js";
 export const createSpeciesSchema = z.object({
   scientific_name: z
     .string()
-    .min(1, "Informe o nome científico da espécie")
-    .trim(),
-  main_name: z.string().min(1, "Informe o nome principal da espécie").trim(),
+    .trim()
+    .min(1, "Informe o nome científico da espécie"),
+  main_name: z.string().trim().min(1, "Informe o nome principal da espécie"),
   description: z.string().trim().optional(),
   target_group_id: z.number().int(),
 });
@@ -17,12 +17,12 @@ export const updateSpeciesSchema = z.object({
     .object({
       scientific_name: z
         .string()
-        .min(1, "Informe o nome científico da espécie")
-        .trim(),
+        .trim()
+        .min(1, "Informe o nome científico da espécie"),
       main_name: z
         .string()
-        .min(1, "Informe o nome principal da espécie")
-        .trim(),
+        .trim()
+        .min(1, "Informe o nome principal da espécie"),
       description: z.string().trim(),
       target_group_id: z.number().int(),
       is_active: z.boolean(),

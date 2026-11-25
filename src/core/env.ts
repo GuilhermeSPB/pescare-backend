@@ -17,6 +17,10 @@ const envSchema = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
+  // Quantos proxies (Nginx, Render, Cloudflare...) ficam na frente da API.
+  // 0 = nenhum: o IP do cliente e o da conexao. So aumentar se houver proxy
+  // de fato, senao o cliente forja o X-Forwarded-For e escapa do rate limit.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 })
 
 const parsed = envSchema.safeParse(process.env)
